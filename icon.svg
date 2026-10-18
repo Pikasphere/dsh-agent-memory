@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Agent memory">
+  <rect x="3" y="3" width="42" height="42" rx="11" fill="#1f6feb" fill-opacity="0.12"/>
+  <circle cx="20" cy="17" r="6.4" fill="none" stroke="#1f6feb" stroke-width="2.4"/>
+  <path d="M8.5 39c0-6.4 5.4-10.4 11.5-10.4S31.5 32.6 31.5 39" fill="none" stroke="#1f6feb" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M33 12h8M33 17h8M33 22h8" stroke="#1f6feb" stroke-width="2.2" stroke-linecap="round" stroke-opacity="0.75"/>
+</svg>

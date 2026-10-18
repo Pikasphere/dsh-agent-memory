@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Agents",
+    "description": "Per-agent short memory plus a detailed knowledge base the agent consults on its own"
+  }
+}

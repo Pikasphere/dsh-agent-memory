@@ -1,0 +1,9 @@
+node_modules/
+*.log
+plugin-error.log
+*.bak
+*.bak-preset
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

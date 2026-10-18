@@ -1,0 +1,1103 @@
+/**
+ * Agent memory and knowledge — browser half.
+ *
+ * One sidebar panel (`agent-memory`) that opens the manager page in the main
+ * column. Data comes from the plugin's own same-origin `/api/agent-memory`
+ * routes, so the page works in every Web composition instead of depending on a
+ * typed Remote binding.
+ *
+ * Hand-written ModuleLoader bundle: no build step, no dependency beyond the
+ * `react` the shell already provides.
+ */
+
+window.__ModuleLoader__.load({
+  id: 'dsh-agent-memory',
+  factory(require) {
+    const React = require('react')
+    const h = React.createElement
+    const { useState, useEffect, useMemo, useCallback, useRef } = React
+
+    const NS = 'agentMemory'
+
+    // ── copy ────────────────────────────────────────────────────────────────
+    const DICT = {
+      zh: {
+        nav: '智能体',
+        title: '智能体',
+        subtitle: '每个智能体一段可继承的记忆；知识库由所有智能体共享。',
+        agents: '智能体列表',
+        create: '新建',
+        createTitle: '新建智能体',
+        name: '名称',
+        namePlaceholder: '例如：重构助手',
+        desc: '说明',
+        descPlaceholder: '这个智能体负责什么（可选）',
+        cancel: '取消',
+        confirm: '创建',
+        emptyList: '还没有智能体。新建一个开始。',
+        emptyPick: '从左侧选择一个智能体，或新建一个。',
+        memory: '记忆',
+        knowledge: '知识库',
+        settings: '设置',
+        memoryHint:
+          '记忆由智能体在任务完成或交接时写入，只保留下一次必须知道的东西。它不会自动进入会话——是否读入、读入哪一个，由你决定。',
+        memoryPlaceholder: '这个智能体上次做到哪里、决定了什么、下一步是什么……',
+        chars: '字',
+        overLimit: '超出上限，请精简记忆。',
+        save: '保存记忆',
+        saved: '已保存',
+        inherit: '默认智能体',
+        inheritHint: '新开的对话没有单独指定智能体时用它；每个对话自己的选择优先。',
+        binding: '智能体',
+        noAgent: '不指定',
+        boundTo: '已绑定 {n} 个对话',
+        active: '默认',
+        memoryMeta: '记忆更新于',
+        never: '尚未写入',
+        kbTitle: '共享知识库',
+        kbEmpty: '共享知识库还是空的。任何智能体工作时都会往里写，你也可以手动添加。',
+        kbHint: '这里由所有智能体共享：谁写进去的经验，其他智能体都能检索到；每条会标出贡献者。',
+        shared: '共享',
+        contributor: '贡献者',
+        allAgents: '全部',
+        newEntry: '新建条目',
+        searchPlaceholder: '搜索标题、标签、内容…',
+        search: '搜索',
+        clear: '清空',
+        entryTitle: '标题',
+        entryTags: '标签（逗号分隔）',
+        entryBody: '内容（Markdown）',
+        saveEntry: '保存条目',
+        deleteEntry: '删除条目',
+        back: '返回列表',
+        edit: '编辑',
+        del: '删除',
+        updatedAt: '更新于',
+        entryCount: '条',
+        noResult: '没有匹配的条目。',
+        dirTitle: '知识库目录',
+        dirHint:
+          '所有智能体共用这一个目录，条目直接放在目录下（不再按智能体分文件夹）。改完立即生效，旧的按智能体分文件夹的内容会自动合并进来。',
+        dirPlaceholder: '例如 D:\\notes\\agent-knowledge',
+        dirSave: '保存目录',
+        dirDefault: '默认目录',
+        dirConfigured: '自定义目录',
+        vaultMeta: '记忆 {m}/{limit} 字 · 贡献 {k} 条 · 用于 {u} 个对话',
+        deleteVault: '删除智能体',
+        deleteVaultHint: '只删除这个智能体的记忆；共享知识库里它贡献的条目会保留。',
+        deleteVaultConfirm: '删除智能体「{name}」？',
+        busy: '处理中…',
+        loadFailed: '无法连接插件后端',
+        retry: '重试',
+        noticeSaved: '已保存',
+        danger: '危险操作',
+        descLabel: '说明',
+        rename: '保存名称',
+        usageTitle: '正在使用它的对话',
+        usageEmpty: '还没有对话使用它。新建对话时可以在顶部那一行选择。',
+        usageUnbind: '解除绑定',
+        usageTag: '对话',
+        untitled: '未命名对话',
+      },
+      en: {
+        nav: 'Agents',
+        title: 'Agents',
+        subtitle: 'One inheritable memory per agent; one knowledge base shared by all of them.',
+        agents: 'Agents',
+        create: 'New',
+        createTitle: 'New agent',
+        name: 'Name',
+        namePlaceholder: 'e.g. Refactor assistant',
+        desc: 'Description',
+        descPlaceholder: 'What this agent is for (optional)',
+        cancel: 'Cancel',
+        confirm: 'Create',
+        emptyList: 'No agents yet. Create one to start.',
+        emptyPick: 'Pick an agent on the left, or create one.',
+        memory: 'Memory',
+        knowledge: 'Knowledge',
+        settings: 'Settings',
+        memoryHint:
+          'The agent writes this when a task ends or work is handed off. It keeps only what the next run must know. It never enters a session by itself — you choose whether to load it, and which one.',
+        memoryPlaceholder: 'Where the agent got to, what it decided, what comes next…',
+        chars: 'chars',
+        overLimit: 'Over the limit — trim the memory.',
+        save: 'Save memory',
+        saved: 'Saved',
+        inherit: 'Default agent',
+        inheritHint: 'Used by a new conversation that has not picked an agent itself; a per-conversation choice wins.',
+        binding: 'Agent',
+        noAgent: 'None',
+        boundTo: 'bound to {n} conversations',
+        active: 'Default',
+        memoryMeta: 'Memory updated',
+        never: 'never written',
+        kbTitle: 'Shared knowledge base',
+        kbEmpty: 'The shared library is empty. Every agent writes here as it works; you can add entries too.',
+        kbHint: 'Shared by every agent: anything one agent records is searchable by the others, and each entry names its contributor.',
+        shared: 'shared',
+        contributor: 'by',
+        allAgents: 'All',
+        newEntry: 'New entry',
+        searchPlaceholder: 'Search title, tags, content…',
+        search: 'Search',
+        clear: 'Clear',
+        entryTitle: 'Title',
+        entryTags: 'Tags (comma separated)',
+        entryBody: 'Content (Markdown)',
+        saveEntry: 'Save entry',
+        deleteEntry: 'Delete entry',
+        back: 'Back to list',
+        edit: 'Edit',
+        del: 'Delete',
+        updatedAt: 'updated',
+        entryCount: 'entries',
+        noResult: 'No matching entries.',
+        dirTitle: 'Knowledge directory',
+        dirHint:
+          'Every agent shares this one directory; entries sit directly in it instead of per-agent folders. Changes apply immediately, and any older per-agent folders are folded in automatically.',
+        dirPlaceholder: 'e.g. D:\\notes\\agent-knowledge',
+        dirSave: 'Save directory',
+        dirDefault: 'Default directory',
+        dirConfigured: 'Custom directory',
+        vaultMeta: 'memory {m}/{limit} · contributed {k} · used by {u}',
+        deleteVault: 'Delete agent',
+        deleteVaultHint: 'Removes this agent’s memory only; entries it contributed stay in the shared library.',
+        deleteVaultConfirm: 'Delete agent “{name}”?',
+        busy: 'Working…',
+        loadFailed: 'Cannot reach the plugin backend',
+        retry: 'Retry',
+        noticeSaved: 'Saved',
+        danger: 'Danger zone',
+        descLabel: 'Description',
+        rename: 'Save name',
+        usageTitle: 'Conversations using it',
+        usageEmpty: 'No conversation uses it yet. Pick one in the New Session row.',
+        usageUnbind: 'Unbind',
+        usageTag: 'session',
+        untitled: 'Untitled conversation',
+      },
+    }
+
+    const CSS = `
+.am-root{height:100%;min-height:0;display:flex;align-items:stretch;font-size:13px;line-height:1.55;color:var(--dsw-alias-label-primary);overflow:hidden}
+.am-side{width:264px;flex:none;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 40%,transparent)}
+.am-side-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:16px 14px 10px}
+.am-side-title{font-size:12px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary)}
+.am-vaults{flex:1;min-height:0;overflow-y:auto;padding:0 8px 8px;display:flex;flex-direction:column;gap:2px}
+.am-vault{display:flex;flex-direction:column;gap:2px;align-items:flex-start;width:100%;text-align:left;padding:9px 10px;border-radius:10px;border:1px solid transparent;background:transparent;color:inherit;font:inherit;cursor:pointer;transition:background .14s ease,border-color .14s ease}
+.am-vault:hover{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 88%,transparent);border-color:var(--dsw-alias-border-l1)}
+.am-vault.is-active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,transparent)}
+.am-vault-row{display:flex;align-items:center;gap:6px;width:100%}
+.am-vault-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.am-vault-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.am-badge{flex:none;font-size:10px;font-weight:650;padding:1px 7px;border-radius:999px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-success-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 12%,transparent);color:var(--dsw-alias-state-success-primary)}
+.am-side-foot{padding:10px 14px 14px;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:4px}
+.am-side-label{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.am-path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;word-break:break-all;color:var(--dsw-alias-label-secondary);line-height:1.45}
+.am-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.am-head{display:flex;align-items:flex-start;gap:16px;padding:20px 26px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.am-head-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.am-head-name{margin:0;font-size:17px;font-weight:700;letter-spacing:-.2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.am-head-sub{margin:0;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.am-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.am-switch{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none;padding:5px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 60%,transparent)}
+.am-switch input{appearance:none;width:26px;height:15px;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;cursor:pointer;transition:background .16s ease;flex:none;margin:0}
+.am-switch input::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--dsw-alias-label-on-accent,#fff);transition:transform .16s ease}
+.am-switch input:checked{background:var(--dsw-alias-state-success-primary)}
+.am-switch input:checked::after{transform:translateX(11px)}
+.am-tabs{display:flex;gap:4px;padding:10px 26px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.am-tab{padding:7px 12px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-weight:600;cursor:pointer}
+.am-tab.is-active{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-state-business-primary)}
+.am-body{flex:1;min-height:0;overflow-y:auto;padding:18px 26px 26px;display:flex;flex-direction:column;gap:12px}
+.am-note{margin:0;font-size:12px;line-height:1.65;color:var(--dsw-alias-label-secondary)}
+.am-note-dim{margin:0;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.am-textarea{width:100%;box-sizing:border-box;min-height:210px;resize:vertical;padding:12px 14px;border-radius:12px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 60%,transparent);color:inherit;font:inherit;line-height:1.7;outline:none}
+.am-textarea:focus,.am-input:focus{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,var(--dsw-alias-border-l1))}
+.am-textarea.is-over{border-color:color-mix(in srgb,var(--dsw-alias-state-warning-primary,var(--dsw-alias-state-business-primary)) 60%,var(--dsw-alias-border-l1))}
+.am-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.am-row-end{justify-content:flex-end}
+.am-counter{font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.am-counter.is-over{color:var(--dsw-alias-state-warning-primary,var(--dsw-alias-state-business-primary))}
+.am-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 70%,transparent);color:var(--dsw-alias-label-secondary);font:inherit;font-weight:600;cursor:pointer;transition:border-color .14s ease,color .14s ease,background .14s ease}
+.am-btn:hover:not(:disabled){border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 45%,var(--dsw-alias-border-l2));color:var(--dsw-alias-label-primary)}
+.am-btn:disabled{opacity:.5;cursor:default}
+.am-btn-primary{border-color:transparent;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-on-accent,#fff)}
+.am-btn-primary:hover:not(:disabled){color:var(--dsw-alias-label-on-accent,#fff);filter:brightness(1.05)}
+.am-btn-ghost{border-color:transparent;background:transparent}
+.am-btn-danger{border-color:color-mix(in srgb,var(--dsw-alias-state-danger-primary,var(--dsw-alias-state-business-primary)) 45%,transparent);color:var(--dsw-alias-state-danger-primary,var(--dsw-alias-state-business-primary));background:transparent}
+.am-btn-sm{padding:4px 10px;font-size:12px;border-radius:8px}
+.am-input{width:100%;box-sizing:border-box;padding:8px 11px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 60%,transparent);color:inherit;font:inherit;outline:none}
+.am-field{display:flex;flex-direction:column;gap:5px}
+.am-label{font-size:11px;font-weight:650;letter-spacing:.03em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary)}
+.am-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:40px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:13px}
+.am-list{display:flex;flex-direction:column;gap:6px}
+.am-item{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;padding:10px 12px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 45%,transparent);color:inherit;font:inherit;cursor:pointer}
+.am-item:hover{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 40%,var(--dsw-alias-border-l1))}
+.am-item-title{font-weight:650;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.am-item-snippet{font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.am-item-meta{font-size:11px;color:var(--dsw-alias-label-tertiary);display:flex;gap:10px;flex-wrap:wrap}
+.am-tag{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary)}
+.am-error{margin:0;padding:10px 12px;border-radius:10px;font-size:12px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-danger-primary,var(--dsw-alias-state-business-primary)) 45%,transparent);color:var(--dsw-alias-state-danger-primary,var(--dsw-alias-state-business-primary));background:color-mix(in srgb,var(--dsw-alias-state-danger-primary,var(--dsw-alias-state-business-primary)) 8%,transparent)}
+.am-toast{font-size:12px;color:var(--dsw-alias-state-success-primary)}
+.am-divider{height:1px;background:var(--dsw-alias-border-l1);margin:4px 0}
+.am-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.am-usage-title{font-weight:600;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.am-split{display:flex;flex-direction:column;gap:10px;max-width:760px}
+.am-card{padding:14px;border-radius:12px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 35%,transparent);display:flex;flex-direction:column;gap:9px}
+.am-danger-card{border-color:color-mix(in srgb,var(--dsw-alias-state-danger-primary,var(--dsw-alias-state-business-primary)) 40%,transparent)}
+.am-hero{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary)}
+.am-hero select{font:inherit;font-size:12px;padding:4px 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 70%,transparent);color:var(--dsw-alias-label-primary);outline:none;max-width:150px}
+.am-hero select:focus{border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 55%,var(--dsw-alias-border-l1))}
+`
+
+    // ── locale ──────────────────────────────────────────────────────────────
+    const localeListeners = new Set()
+    function subscribeLocale(fn) {
+      localeListeners.add(fn)
+      return () => {
+        localeListeners.delete(fn)
+      }
+    }
+
+    function useLocale(props) {
+      const [, bump] = useState(0)
+      useEffect(() => subscribeLocale(() => bump(value => value + 1)), [])
+      return props.t
+    }
+
+    // ── transport ───────────────────────────────────────────────────────────
+    const API = (() => {
+      try {
+        return new URL('api/agent-memory', document.baseURI).pathname
+      } catch {
+        return '/api/agent-memory'
+      }
+    })()
+
+    async function request(path, options) {
+      const { timeout = 15000, ...rest } = options ?? {}
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeout)
+      try {
+        const response = await fetch(`${API}${path}`, { ...rest, redirect: 'error', signal: controller.signal })
+        const text = await response.text()
+        let payload
+        try {
+          payload = text === '' ? {} : JSON.parse(text)
+        } catch {
+          payload = { error: { code: 'bad-body', message: text.slice(0, 200) } }
+        }
+        if (!response.ok) {
+          const message = payload?.error?.message ?? payload?.error?.code ?? `HTTP ${response.status}`
+          const error = new Error(message)
+          error.code = payload?.error?.code
+          throw error
+        }
+        return payload
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    function ago(value, locale) {
+      if (!value) return ''
+      const time = Date.parse(value)
+      if (Number.isNaN(time)) return ''
+      const seconds = Math.max(1, Math.round((Date.now() - time) / 1000))
+      const zh = String(locale ?? '').toLowerCase().startsWith('zh')
+      if (seconds < 60) return zh ? `${seconds} 秒前` : `${seconds}s ago`
+      const minutes = Math.round(seconds / 60)
+      if (minutes < 60) return zh ? `${minutes} 分钟前` : `${minutes}m ago`
+      const hours = Math.round(minutes / 60)
+      if (hours < 24) return zh ? `${hours} 小时前` : `${hours}h ago`
+      const days = Math.round(hours / 24)
+      return zh ? `${days} 天前` : `${days}d ago`
+    }
+
+    // ── controls ────────────────────────────────────────────────────────────
+    function Switch(props) {
+      return h(
+        'label',
+        { className: 'am-switch', title: props.hint },
+        h('input', {
+          type: 'checkbox',
+          role: 'switch',
+          'aria-checked': props.checked ? 'true' : 'false',
+          checked: props.checked === true,
+          disabled: props.disabled === true,
+          onChange: event => props.onChange(event.target.checked),
+        }),
+        h('span', null, props.label),
+      )
+    }
+
+    function Field(props) {
+      return h('label', { className: 'am-field' }, h('span', { className: 'am-label' }, props.label), props.children)
+    }
+
+    // ── page ────────────────────────────────────────────────────────────────
+    function Panel(props) {
+      const t = useLocale(props)
+      const locale = typeof props.getLocale === 'function' ? props.getLocale() : ''
+      const [data, setData] = useState(null)
+      const [failure, setFailure] = useState('')
+      const [busy, setBusy] = useState('')
+      const [notice, setNotice] = useState('')
+      const [tab, setTab] = useState('memory')
+      const [selectedId, setSelectedId] = useState('')
+      const [memoryDraft, setMemoryDraft] = useState('')
+      const [entries, setEntries] = useState([])
+      const [query, setQuery] = useState('')
+      const [results, setResults] = useState(null)
+      const [editor, setEditor] = useState(null)
+      const [creating, setCreating] = useState(false)
+      const [draftName, setDraftName] = useState('')
+      const [draftDesc, setDraftDesc] = useState('')
+      const [dirDraft, setDirDraft] = useState('')
+      const [kbVersion, setKbVersion] = useState(0)
+      const draftKey = useRef('')
+      const alive = useRef(true)
+
+      useEffect(() => {
+        alive.current = true
+        return () => {
+          alive.current = false
+        }
+      }, [])
+
+      const applyState = useCallback(next => {
+        if (!next || !alive.current) return
+        setData(next)
+        setSelectedId(current => {
+          if (current !== '' && next.vaults.some(item => item.id === current)) return current
+          if (next.activeVault !== '') return next.activeVault
+          return next.vaults.length > 0 ? next.vaults[0].id : ''
+        })
+      }, [])
+
+      const reload = useCallback(async () => {
+        try {
+          const payload = await request('/state')
+          applyState(payload.state)
+          setFailure('')
+        } catch (error) {
+          setFailure(String(error?.message ?? error))
+        }
+      }, [applyState])
+
+      useEffect(() => {
+        void reload()
+      }, [reload])
+
+      const call = useCallback(
+        async (op, args) => {
+          setBusy(op)
+          setNotice('')
+          try {
+            const payload = await request('/op', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ op, args: args ?? {} }),
+            })
+            applyState(payload.state)
+            setFailure('')
+            return payload.value
+          } catch (error) {
+            setNotice('')
+            setFailure(String(error?.message ?? error))
+            return undefined
+          } finally {
+            setBusy('')
+          }
+        },
+        [applyState],
+      )
+
+      const vault = useMemo(() => (data ? data.vaults.find(item => item.id === selectedId) ?? null : null), [data, selectedId])
+      const usage = useMemo(
+        () => (data && vault ? (data.bindings ?? []).filter(item => item.agentId === vault.id) : []),
+        [data, vault],
+      )
+
+      useEffect(() => {
+        if (!vault) return
+        const key = `${vault.id}@${vault.memoryUpdatedAt}@${vault.memory.length}`
+        if (draftKey.current === key) return
+        draftKey.current = key
+        setMemoryDraft(vault.memory.replace(/\s+$/, ''))
+      }, [vault])
+
+      useEffect(() => {
+        if (!vault || tab !== 'knowledge') return
+        let live = true
+        request('/op', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'knowledge.list', args: {} }),
+        })
+          .then(payload => {
+            if (!live) return
+            setEntries(payload.value?.entries ?? [])
+            applyState(payload.state)
+          })
+          .catch(error => {
+            if (live) setFailure(String(error?.message ?? error))
+          })
+        return () => {
+          live = false
+        }
+      }, [vault?.id, tab, kbVersion, applyState])
+
+      useEffect(() => {
+        if (data) setDirDraft(data.knowledgeDirConfigured ?? '')
+      }, [data?.knowledgeDirConfigured])
+
+      const select = id => {
+        setSelectedId(id)
+        setEditor(null)
+        setResults(null)
+        setQuery('')
+      }
+
+      const saveMemory = async () => {
+        if (!vault) return
+        const value = await call('memory.save', { id: vault.id, content: memoryDraft })
+        if (value) setNotice(t('noticeSaved'))
+      }
+
+      const createVault = async () => {
+        const name = draftName.trim()
+        if (name === '') return
+        const created = await call('vault.create', { name, description: draftDesc })
+        if (created?.id) {
+          setSelectedId(created.id)
+          setTab('memory')
+        }
+        setCreating(false)
+        setDraftName('')
+        setDraftDesc('')
+      }
+
+      const unbindSession = async sessionId => {
+        await call('binding.set', { sessionId, agentId: '' })
+      }
+
+      const deleteVault = async () => {
+        if (!vault) return
+        if (!window.confirm(t('deleteVaultConfirm').replace('{name}', vault.name))) return
+        const removed = await call('vault.delete', { id: vault.id, deleteKnowledge: false })
+        if (removed) {
+          setTab('memory')
+          setEditor(null)
+        }
+      }
+
+      const toggleInherit = async checked => {
+        if (!vault) return
+        await call('vault.activate', { id: checked ? vault.id : '' })
+      }
+
+      const search = async () => {
+        if (!vault) return
+        const text = query.trim()
+        if (text === '') {
+          setResults(null)
+          return
+        }
+        const found = await call('knowledge.search', { id: vault.id, query: text, limit: 25 })
+        setResults(found?.entries ?? [])
+      }
+
+      const openEntry = async entryId => {
+        if (!vault) return
+        const entry = await call('knowledge.read', { id: vault.id, entry: entryId })
+        if (!entry) return
+        setEditor({
+          id: entry.id,
+          title: entry.title,
+          tags: (entry.tags ?? []).join(', '),
+          content: entry.content,
+        })
+      }
+
+      const saveEntry = async () => {
+        if (!vault || !editor) return
+        if (editor.content.trim() === '') return
+        const saved = await call('knowledge.save', {
+          id: vault.id,
+          entry: editor.id === '' ? undefined : editor.id,
+          title: editor.title,
+          tags: editor.tags,
+          content: editor.content,
+        })
+        if (saved) {
+          setEditor({ id: saved.entry, title: saved.title ?? editor.title, tags: editor.tags, content: editor.content })
+          setKbVersion(value => value + 1)
+          setNotice(t('noticeSaved'))
+        }
+      }
+
+      const deleteEntry = async () => {
+        if (!vault || !editor || editor.id === '') return
+        if (!window.confirm(`${t('deleteEntry')} “${editor.title || editor.id}”?`)) return
+        const removed = await call('knowledge.delete', { id: vault.id, entry: editor.id })
+        if (removed) {
+          setEditor(null)
+          setKbVersion(value => value + 1)
+        }
+      }
+
+      const saveDir = async () => {
+        await call('settings.save', { knowledgeDir: dirDraft })
+        setNotice(t('noticeSaved'))
+      }
+
+      if (failure !== '' && data === null) {
+        return h(
+          'div',
+          { className: 'am-root' },
+          h(
+            'div',
+            { className: 'am-empty' },
+            h('div', null, t('loadFailed')),
+            h('div', { className: 'am-note-dim' }, failure),
+            h('button', { className: 'am-btn am-btn-sm', onClick: () => void reload() }, t('retry')),
+          ),
+        )
+      }
+
+      if (data === null) {
+        return h('div', { className: 'am-root' }, h('div', { className: 'am-empty' }, t('busy')))
+      }
+
+      const limit = data.memoryLimit
+      const over = memoryDraft.length > limit
+      const list = results ?? entries
+
+      const side = h(
+        'aside',
+        { className: 'am-side' },
+        h(
+          'div',
+          { className: 'am-side-head' },
+          h('span', { className: 'am-side-title' }, t('agents')),
+          h(
+            'button',
+            { className: 'am-btn am-btn-sm', onClick: () => setCreating(value => !value) },
+            `+ ${t('create')}`,
+          ),
+        ),
+        creating
+          ? h(
+              'div',
+              { className: 'am-card', style: { margin: '0 10px 10px' } },
+              h(Field, { label: t('name') }, h('input', {
+                className: 'am-input',
+                value: draftName,
+                placeholder: t('namePlaceholder'),
+                autoFocus: true,
+                onChange: event => setDraftName(event.target.value),
+                onKeyDown: event => {
+                  if (event.key === 'Enter') void createVault()
+                },
+              })),
+              h(Field, { label: t('desc') }, h('input', {
+                className: 'am-input',
+                value: draftDesc,
+                placeholder: t('descPlaceholder'),
+                onChange: event => setDraftDesc(event.target.value),
+              })),
+              h(
+                'div',
+                { className: 'am-row am-row-end' },
+                h('button', { className: 'am-btn am-btn-sm am-btn-ghost', onClick: () => setCreating(false) }, t('cancel')),
+                h(
+                  'button',
+                  {
+                    className: 'am-btn am-btn-sm am-btn-primary',
+                    disabled: draftName.trim() === '',
+                    onClick: () => void createVault(),
+                  },
+                  t('confirm'),
+                ),
+              ),
+            )
+          : null,
+        h(
+          'div',
+          { className: 'am-vaults' },
+          data.vaults.length === 0
+            ? h('p', { className: 'am-note-dim', style: { padding: '8px 10px' } }, t('emptyList'))
+            : data.vaults.map(item =>
+                h(
+                  'button',
+                  {
+                    key: item.id,
+                    className: `am-vault${item.id === selectedId ? ' is-active' : ''}`,
+                    onClick: () => select(item.id),
+                  },
+                  h(
+                    'span',
+                    { className: 'am-vault-row' },
+                    h('span', { className: 'am-vault-name' }, item.name),
+                    item.id === data.activeVault ? h('span', { className: 'am-badge' }, t('active')) : null,
+                  ),
+                  h(
+                    'span',
+                    { className: 'am-vault-meta' },
+                    t('vaultMeta')
+                      .replace('{m}', String(item.memoryChars))
+                      .replace('{limit}', String(limit))
+                      .replace('{k}', String(item.knowledgeCount))
+                      .replace('{u}', String((data.bindings ?? []).filter(entry => entry.agentId === item.id).length)),
+                  ),
+                ),
+              ),
+        ),
+        h(
+          'div',
+          { className: 'am-side-foot' },
+          h('span', { className: 'am-side-label' }, t('dirTitle')),
+          h('span', { className: 'am-path' }, data.knowledgeDir),
+        ),
+      )
+
+      let body
+      if (vault === null) {
+        body = h('div', { className: 'am-empty' }, t('emptyPick'))
+      } else if (tab === 'memory') {
+        body = h(
+          'div',
+          { className: 'am-split' },
+          h('p', { className: 'am-note' }, t('memoryHint')),
+          h('textarea', {
+            className: `am-textarea${over ? ' is-over' : ''}`,
+            value: memoryDraft,
+            placeholder: t('memoryPlaceholder'),
+            spellCheck: false,
+            onChange: event => setMemoryDraft(event.target.value),
+          }),
+          h(
+            'div',
+            { className: 'am-row' },
+            h('span', { className: `am-counter${over ? ' is-over' : ''}` }, `${memoryDraft.length} / ${limit} ${t('chars')}`),
+            over ? h('span', { className: 'am-counter is-over' }, t('overLimit')) : null,
+            h('span', { style: { flex: 1 } }),
+            notice === t('noticeSaved') ? h('span', { className: 'am-toast' }, notice) : null,
+            h(
+              'button',
+              {
+                className: 'am-btn am-btn-primary',
+                disabled: over || busy !== '' || memoryDraft.trim() === vault.memory.trim(),
+                onClick: () => void saveMemory(),
+              },
+              t('save'),
+            ),
+          ),
+          h('div', { className: 'am-divider' }),
+          h(
+            'p',
+            { className: 'am-note-dim' },
+            `${t('memoryMeta')} ${vault.memoryUpdatedAt ? ago(vault.memoryUpdatedAt, locale) : t('never')}`,
+          ),
+          h('div', { className: 'am-divider' }),
+          h('span', { className: 'am-label' }, t('usageTitle')),
+          usage.length === 0
+            ? h('p', { className: 'am-note-dim' }, t('usageEmpty'))
+            : h(
+                'div',
+                { className: 'am-list' },
+                usage.map(item =>
+                  h(
+                    'div',
+                    { key: item.sessionId, className: 'am-row' },
+                    h('span', { className: 'am-tag' }, t('usageTag')),
+                    h(
+                      'span',
+                      { className: 'am-usage-title', title: item.sessionId },
+                      item.title || t('untitled'),
+                    ),
+                    h('span', { className: 'am-mono' }, item.sessionId.slice(0, 13)),
+                    h('span', { style: { flex: 1 } }),
+                    h(
+                      'button',
+                      {
+                        className: 'am-btn am-btn-sm am-btn-ghost',
+                        disabled: busy !== '',
+                        onClick: () => void unbindSession(item.sessionId),
+                      },
+                      t('usageUnbind'),
+                    ),
+                  ),
+                ),
+              ),
+        )
+      } else if (tab === 'knowledge') {
+        body = editor
+          ? h(
+              'div',
+              { className: 'am-split' },
+              h(
+                'div',
+                { className: 'am-row' },
+                h('button', { className: 'am-btn am-btn-sm am-btn-ghost', onClick: () => setEditor(null) }, `← ${t('back')}`),
+                h('span', { style: { flex: 1 } }),
+                editor.id !== ''
+                  ? h('button', { className: 'am-btn am-btn-sm am-btn-danger', onClick: () => void deleteEntry() }, t('deleteEntry'))
+                  : null,
+              ),
+              h(Field, { label: t('entryTitle') }, h('input', {
+                className: 'am-input',
+                value: editor.title,
+                onChange: event => setEditor({ ...editor, title: event.target.value }),
+              })),
+              h(Field, { label: t('entryTags') }, h('input', {
+                className: 'am-input',
+                value: editor.tags,
+                placeholder: 'path, build, windows',
+                onChange: event => setEditor({ ...editor, tags: event.target.value }),
+              })),
+              h(Field, { label: t('entryBody') }, h('textarea', {
+                className: 'am-textarea',
+                style: { minHeight: 300 },
+                value: editor.content,
+                onChange: event => setEditor({ ...editor, content: event.target.value }),
+              })),
+              h(
+                'div',
+                { className: 'am-row am-row-end' },
+                h(
+                  'button',
+                  {
+                    className: 'am-btn am-btn-primary',
+                    disabled: busy !== '' || editor.content.trim() === '',
+                    onClick: () => void saveEntry(),
+                  },
+                  t('saveEntry'),
+                ),
+              ),
+            )
+          : h(
+              'div',
+              { className: 'am-split' },
+              h(
+                'div',
+                { className: 'am-row' },
+                h('span', { className: 'am-label' }, t('kbTitle')),
+                h('span', { className: 'am-badge' }, t('shared')),
+                h('span', { className: 'am-note-dim' }, `${data.knowledgeCount ?? list.length} ${t('entryCount')}`),
+              ),
+              h('p', { className: 'am-note' }, t('kbHint')),
+              h(
+                'div',
+                { className: 'am-row' },
+                h('input', {
+                  className: 'am-input',
+                  style: { flex: 1, minWidth: 180 },
+                  value: query,
+                  placeholder: t('searchPlaceholder'),
+                  onChange: event => setQuery(event.target.value),
+                  onKeyDown: event => {
+                    if (event.key === 'Enter') void search()
+                  },
+                }),
+                h(
+                  'button',
+                  { className: 'am-btn am-btn-sm', disabled: busy !== '', onClick: () => void search() },
+                  t('search'),
+                ),
+                results === null
+                  ? null
+                  : h(
+                      'button',
+                      {
+                        className: 'am-btn am-btn-sm am-btn-ghost',
+                        onClick: () => {
+                          setQuery('')
+                          setResults(null)
+                        },
+                      },
+                      t('clear'),
+                    ),
+                h('span', { style: { flex: 1 } }),
+                h(
+                  'button',
+                  {
+                    className: 'am-btn am-btn-sm am-btn-primary',
+                    onClick: () => setEditor({ id: '', title: '', tags: '', content: '' }),
+                  },
+                  `+ ${t('newEntry')}`,
+                ),
+              ),
+              list.length === 0
+                ? h(
+                    'p',
+                    { className: 'am-note-dim' },
+                    results === null ? t('kbEmpty') : t('noResult'),
+                  )
+                : h(
+                    'div',
+                    { className: 'am-list' },
+                    list.map(entry =>
+                      h(
+                        'button',
+                        { key: entry.id, className: 'am-item', onClick: () => void openEntry(entry.id) },
+                        h(
+                          'span',
+                          { className: 'am-item-title' },
+                          entry.title || entry.id,
+                          (entry.tags ?? []).map(tag => h('span', { key: tag, className: 'am-tag' }, tag)),
+                        ),
+                        entry.snippet ? h('span', { className: 'am-item-snippet' }, entry.snippet) : null,
+                        h(
+                          'span',
+                          { className: 'am-item-meta' },
+                          entry.agent
+                            ? h('span', { className: 'am-tag' }, `${t('contributor')} ${entry.agent}`)
+                            : null,
+                          h('span', { className: 'am-mono' }, entry.id),
+                          entry.updated ? h('span', null, `${t('updatedAt')} ${ago(entry.updated, locale)}`) : null,
+                        ),
+                      ),
+                    ),
+                  ),
+            )
+      } else {
+        body = h(
+          'div',
+          { className: 'am-split' },
+          h(
+            'div',
+            { className: 'am-card' },
+            h('span', { className: 'am-label' }, t('dirTitle')),
+            h('p', { className: 'am-note' }, t('dirHint')),
+            h('div', { className: 'am-path' }, `${t('dirDefault')}: ${data.knowledgeDir}`),
+            h('input', {
+              className: 'am-input',
+              value: dirDraft,
+              placeholder: t('dirPlaceholder'),
+              onChange: event => setDirDraft(event.target.value),
+            }),
+            h(
+              'div',
+              { className: 'am-row am-row-end' },
+              h(
+                'button',
+                { className: 'am-btn am-btn-sm', disabled: busy !== '', onClick: () => void saveDir() },
+                t('dirSave'),
+              ),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'am-card am-danger-card' },
+            h('span', { className: 'am-label' }, t('danger')),
+            h('p', { className: 'am-note-dim' }, t('deleteVaultHint')),
+            h(
+              'div',
+              { className: 'am-row am-row-end' },
+              h(
+                'button',
+                { className: 'am-btn am-btn-sm am-btn-danger', disabled: busy !== '', onClick: () => void deleteVault() },
+                t('deleteVault'),
+              ),
+            ),
+          ),
+        )
+      }
+
+      return h(
+        'div',
+        { className: 'am-root' },
+        side,
+        h(
+          'section',
+          { className: 'am-main' },
+          h(
+            'header',
+            { className: 'am-head' },
+            h(
+              'div',
+              { className: 'am-head-main' },
+              h('h2', { className: 'am-head-name' }, vault ? vault.name : t('title')),
+              h('p', { className: 'am-head-sub' }, vault && vault.description ? vault.description : t('subtitle')),
+            ),
+            vault
+              ? h(
+                  'div',
+                  { className: 'am-head-actions' },
+                  h(Switch, {
+                    checked: vault.id === data.activeVault,
+                    label: t('inherit'),
+                    hint: t('inheritHint'),
+                    disabled: busy !== '',
+                    onChange: checked => void toggleInherit(checked),
+                  }),
+                )
+              : null,
+          ),
+          vault
+            ? h(
+                'nav',
+                { className: 'am-tabs' },
+                ['memory', 'knowledge', 'settings'].map(key =>
+                  h(
+                    'button',
+                    {
+                      key,
+                      className: `am-tab${tab === key ? ' is-active' : ''}`,
+                      onClick: () => {
+                        setTab(key)
+                        if (key !== 'knowledge') {
+                          setEditor(null)
+                          setResults(null)
+                        }
+                      },
+                    },
+                    key === 'memory' ? t('memory') : key === 'knowledge' ? t('knowledge') : t('settings'),
+                  ),
+                ),
+              )
+            : null,
+          failure !== '' && data !== null ? h('div', { style: { padding: '0 26px' } }, h('p', { className: 'am-error' }, failure)) : null,
+          h('div', { className: 'am-body' }, body),
+        ),
+      )
+    }
+
+    // ── new-conversation agent picker ───────────────────────────────────────
+    // The New Session row already knows its session id, so the choice is written
+    // straight onto that conversation instead of a global switch.
+    function HeroAgentPicker(props) {
+      const t = useLocale(props)
+      const sessionId = typeof props.sessionId === 'string' ? props.sessionId : ''
+      const [vaults, setVaults] = useState(null)
+      const [value, setValue] = useState('')
+      const [busy, setBusy] = useState(false)
+
+      useEffect(() => {
+        if (sessionId === '') return undefined
+        let alive = true
+        request('/state')
+          .then(payload => {
+            if (!alive) return
+            const list = payload.state.vaults ?? []
+            setVaults(list)
+            const bound = (payload.state.bindings ?? []).find(item => item.sessionId === sessionId)
+            setValue(bound ? bound.agentId : '')
+          })
+          .catch(() => {
+            if (alive) setVaults([])
+          })
+        return () => {
+          alive = false
+        }
+      }, [sessionId])
+
+      if (sessionId === '' || vaults === null || vaults.length === 0) return null
+
+      const change = next => {
+        setValue(next)
+        setBusy(true)
+        request('/op', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'binding.set', args: { sessionId, agentId: next } }),
+        })
+          .catch(() => {})
+          .then(() => setBusy(false))
+      }
+
+      return h(
+        'label',
+        { className: 'am-hero', title: t('inheritHint') },
+        h('span', null, t('binding')),
+        h(
+          'select',
+          { value, disabled: busy, onChange: event => change(event.target.value) },
+          h('option', { value: '' }, t('noAgent')),
+          vaults.map(item => h('option', { key: item.id, value: item.id }, item.name)),
+        ),
+      )
+    }
+
+    // ── sidebar icon ────────────────────────────────────────────────────────
+    function Icon(props) {
+      const size = typeof props.size === 'number' ? props.size : 18
+      const stroke = props.active ? 'var(--dsw-alias-state-business-primary)' : 'currentColor'
+      return h(
+        'svg',
+        {
+          viewBox: '0 0 24 24',
+          width: size,
+          height: size,
+          fill: 'none',
+          stroke,
+          strokeWidth: 1.6,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          'aria-hidden': true,
+          style: { display: 'block' },
+        },
+        h('circle', { cx: 12, cy: 8, r: 3.2 }),
+        h('path', { d: 'M5.5 20c0-3.2 2.9-5.2 6.5-5.2s6.5 2 6.5 5.2' }),
+        h('path', { d: 'M17.4 5.2h3.2M17.4 8h3.2M17.4 10.8h3.2' }),
+      )
+    }
+
+    // ── activation ──────────────────────────────────────────────────────────
+    function apply(ctx) {
+      const t = ctx.locale.bind(NS)
+
+      ctx.effect(() => ctx.locale.register(NS, { zh: DICT.zh, en: DICT.en }), 'agent-memory: dictionaries')
+
+      ctx.effect(() => {
+        const unsubscribe = ctx.locale.subscribe(() => {
+          for (const listener of localeListeners) listener()
+        })
+        return unsubscribe
+      }, 'agent-memory: locale notifications')
+
+      ctx.effect(() => {
+        const style = document.createElement('style')
+        style.setAttribute('data-plugin', 'agent-memory')
+        style.textContent = CSS
+        document.head.appendChild(style)
+        return () => style.remove()
+      }, 'agent-memory: styles')
+
+      const locale = () => {
+        try {
+          const snapshot = typeof ctx.locale?.getLocale === 'function' ? ctx.locale.getLocale() : ctx.locale?.getSnapshot?.()
+          const value = snapshot?.active ?? ctx.locale?.locale
+          return typeof value === 'string' ? value : document.documentElement.lang || 'en'
+        } catch {
+          return 'en'
+        }
+      }
+
+      ctx.slots.inject('sidebar.panellist', () =>
+        ctx.slots.register(
+          { name: 'sidebar.panellist', id: 'agent-memory', order: 20, label: () => t('nav') },
+          props => h(Icon, props),
+        ),
+      )
+
+      ctx.slots.inject('conversation.hero.options', () =>
+        ctx.slots.register(
+          { name: 'conversation.hero.options', id: 'agent-memory', order: 10, label: () => t('binding') },
+          props => h(HeroAgentPicker, { ...props, t }),
+        ),
+      )
+
+      ctx.slots.inject('main', () =>
+        ctx.slots.register({ name: 'main', key: 'agent-memory' }, props =>
+          h(Panel, { ...props, t, getLocale: locale }),
+        ),
+      )
+    }
+
+    return { inject: ['slots', 'locale'], name: 'agent-memory', apply }
+  },
+})
