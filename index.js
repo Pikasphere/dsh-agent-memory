@@ -942,6 +942,8 @@ async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
 }
 
 function registerApi(ctx, store, rooms, journals, handoff, hints) {
+  /** Store state plus the capabilities this host build exposes to the panel. */
+  const publicState = () => ({ ...store.state(), capabilities: { sessions: true } })
   // `webServer` is published after plugins load in the Web composition, so this
   // must pend on the service instead of reading it once at apply time.
   ctx.inject(['webServer'], scoped => {
@@ -959,14 +961,14 @@ function registerApi(ctx, store, rooms, journals, handoff, hints) {
       const method = String(req.method ?? 'GET').toUpperCase()
       try {
         if (method === 'GET' && (route === '/' || route === '/state')) {
-          return json(res, 200, { ok: true, state: store.state() })
+          return json(res, 200, { ok: true, state: publicState() })
         }
         if (method === 'POST' && route === '/op') {
           const body = await readJson(req)
           const op = String(body?.op ?? '')
           const args = body?.args && typeof body.args === 'object' ? body.args : {}
           const value = await handleOp(ctx, store, rooms, journals, handoff, op, args)
-          return json(res, 200, { ok: true, value, state: store.state() })
+          return json(res, 200, { ok: true, value, state: publicState() })
         }
         return json(res, 404, { error: { code: 'not-found', message: `no route ${method} ${route}` } })
       } catch (error) {

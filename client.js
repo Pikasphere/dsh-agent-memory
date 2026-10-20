@@ -1722,7 +1722,9 @@ window.__ModuleLoader__.load({
             ? h(
                 'nav',
                 { className: 'am-tabs' },
-                ['memory', 'sessions', 'knowledge', 'journal', 'handoff', 'settings'].map(key =>
+                ['memory', 'sessions', 'knowledge', 'journal', 'handoff', 'settings']
+                  .filter(key => key !== 'sessions' || data?.capabilities?.sessions === true)
+                  .map(key =>
                   h(
                     'button',
                     {
