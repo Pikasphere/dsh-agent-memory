@@ -241,12 +241,32 @@ ctx.get = name => {
         modelCalls.push(request)
         return Promise.resolve({ selected: { provider: request.provider, model: request.model } })
       },
+      list: () =>
+        Promise.resolve({
+          items: [
+            { sessionId: 'session-test-1234', cwd: 'E:\\work', updatedAt: 1000, running: true },
+            { sessionId: 'session-elsewhere', cwd: 'E:\\other', updatedAt: 900, running: false },
+          ],
+        }),
+      create: request => {
+        createCalls.push(request)
+        return Promise.resolve({ sessionId: 'session-created' })
+      },
+    }
+  }
+  if (name === 'workspaceRegistry') {
+    return {
+      list: () => [
+        { id: 'w-work', title: 'Work', path: 'E:\\work', sessionIds: ['session-test-1234'] },
+        { id: 'w-other', title: 'Other', path: 'E:\\other', sessionIds: [] },
+      ],
     }
   }
   return undefined
 }
 const approvalCalls = []
 const modelCalls = []
+const createCalls = []
 const preStep = registered.handlers.find(item => item.event === 'agent/pre-step').handler
 await call('POST', '/op', { op: 'binding.set', args: { sessionId: 'session-test-1234', agentId: id } })
 await preStep({ agent: { id: 'session-test-1234' } }, async () => {})
@@ -303,6 +323,34 @@ assert.equal((await bindings()).some(item => item.sessionId === 'session-next-3'
 assert.deepEqual(approvalCalls, [['session-next-2', 'never']])
 assert.equal(modelCalls.length, 1)
 console.log('handoff next-session inheritance ok')
+
+// ── workspace / sessions / new-session ops ──────────────────────────────────
+const workspaces = await call('POST', '/op', { op: 'workspace.list', args: {} })
+assert.equal(workspaces.payload.value.workspaces.length, 2)
+assert.equal(workspaces.payload.value.workspaces[0].id, 'w-work')
+
+const agentSessionList = await call('POST', '/op', { op: 'agent.sessions', args: { id } })
+const row = agentSessionList.payload.value.sessions.find(item => item.sessionId === 'session-test-1234')
+assert.equal(row.workspaceId, 'w-work')
+assert.equal(row.workspaceTitle, 'Work')
+assert.equal(row.running, true)
+assert.equal(row.visible, true)
+const gone = agentSessionList.payload.value.sessions.find(item => item.sessionId === 'session-next-2')
+assert.equal(gone.visible, false)
+assert.equal(gone.workspaceId, '')
+
+const newSessionResult = await call('POST', '/op', { op: 'agent.newSession', args: { id, workspaceId: 'w-work' } })
+assert.equal(newSessionResult.payload.value.sessionId, 'session-created')
+assert.deepEqual(createCalls[0], { workspaceId: 'w-work', cwd: 'E:\\work' })
+assert.ok((await bindings()).some(item => item.sessionId === 'session-created' && item.agentId === id))
+
+const armedAgain = await call('POST', '/op', { op: 'handoff.arm', args: { sessionId: 'session-test-1234' } })
+assert.equal(armedAgain.payload.value.workspaceId, 'w-work')
+
+assert.equal((await call('GET', '/state')).payload.state.hideBoundSessions, true)
+const hidden = await call('POST', '/op', { op: 'settings.save', args: { hideBoundSessions: false } })
+assert.equal(hidden.payload.state.hideBoundSessions, false)
+console.log('workspace + sessions ops ok')
 
 // ── errors ──────────────────────────────────────────────────────────────────
 const bad = await call('POST', '/op', { op: 'nope' })

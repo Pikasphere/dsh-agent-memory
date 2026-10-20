@@ -187,6 +187,7 @@ export function createStore(options = {}) {
       version: 1,
       knowledgeDir: typeof raw.knowledgeDir === 'string' ? raw.knowledgeDir : '',
       activeVault: typeof raw.activeVault === 'string' ? raw.activeVault : '',
+      hideBoundSessions: raw.hideBoundSessions !== false,
     }
   }
 
@@ -399,6 +400,7 @@ export function createStore(options = {}) {
       knowledgeShared: true,
       knowledgeCount: entries().length,
       activeVault: active === undefined ? '' : active.id,
+      hideBoundSessions: current.hideBoundSessions,
       bindings: listBindings(),
       vaults: vaults,
     }
@@ -480,6 +482,7 @@ export function createStore(options = {}) {
     const next = { ...current }
     if (typeof patch.knowledgeDir === 'string') next.knowledgeDir = patch.knowledgeDir.trim()
     if (typeof patch.activeVault === 'string') next.activeVault = patch.activeVault
+    if (typeof patch.hideBoundSessions === 'boolean') next.hideBoundSessions = patch.hideBoundSessions
     if (next.activeVault !== '' && !registry().some(item => item.id === next.activeVault)) {
       next.activeVault = ''
     }

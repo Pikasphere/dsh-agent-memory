@@ -139,6 +139,19 @@ window.__ModuleLoader__.load({
         handoffNoWorkspace: '当前环境不支持从面板新建会话。',
         handoffArmed: '待续',
         handoffArmedHint: '30 分钟内在这个目录新建的会话会自动绑定该智能体，并继承审批策略。',
+        sessionsTab: '对话',
+        sessionsHint: '这里按智能体收拢它的对话。已绑定的对话会从左侧工作区列表里隐藏，只能从这里或搜索找到。',
+        sessionsTitle: '它的对话',
+        sessionsEmpty: '这个智能体还没有对话。选一个工作区，点「新建对话」开始。',
+        sessionsWorkspace: '工作区',
+        sessionsSwitch: '切换过去',
+        sessionsNew: '新建对话',
+        sessionsOpen: '打开',
+        sessionsNoWorkspace: '未分组',
+        sessionsGone: '记录已不存在',
+        running: '运行中',
+        hideBound: '已绑定对话不在工作区显示',
+        hideBoundHint: '绑定到智能体的对话从左侧工作区列表里隐藏；在本页签按智能体查找和打开。',
       },
       en: {
         nav: 'Agents',
@@ -258,6 +271,19 @@ window.__ModuleLoader__.load({
         handoffNoWorkspace: 'This environment cannot start a session from the panel.',
         handoffArmed: 'ready to continue',
         handoffArmedHint: 'A new session in this directory within 30 minutes will inherit this agent and its approval policy.',
+        sessionsTab: 'Sessions',
+        sessionsHint: 'Each agent keeps its own conversations here. Bound conversations are hidden from the workspace list on the left; find them here or through search.',
+        sessionsTitle: 'Its conversations',
+        sessionsEmpty: 'This agent has no conversation yet. Pick a workspace and press New conversation.',
+        sessionsWorkspace: 'Workspace',
+        sessionsSwitch: 'Switch there',
+        sessionsNew: 'New conversation',
+        sessionsOpen: 'Open',
+        sessionsNoWorkspace: 'unassigned',
+        sessionsGone: 'log missing',
+        running: 'running',
+        hideBound: 'Hide bound conversations from workspaces',
+        hideBoundHint: 'Conversations bound to an agent are hidden in the workspace list and found here, per agent.',
       },
     }
 
@@ -466,6 +492,9 @@ window.__ModuleLoader__.load({
       const [handoffInfo, setHandoffInfo] = useState(null)
       const [handoffDraft, setHandoffDraft] = useState({ triggerTokens: 300000, remindEverySteps: 2, exportDir: '' })
       const [handoffVersion, setHandoffVersion] = useState(0)
+      const [sessionsInfo, setSessionsInfo] = useState({ sessions: [], workspaces: [] })
+      const [sessionsWorkspace, setSessionsWorkspace] = useState('')
+      const [sessionsVersion, setSessionsVersion] = useState(0)
       const draftKey = useRef('')
       const alive = useRef(true)
 
@@ -652,6 +681,40 @@ window.__ModuleLoader__.load({
       }, [tab, handoffVersion])
 
       useEffect(() => {
+        if (!vault || tab !== 'sessions') return undefined
+        let live = true
+        Promise.all([
+          request('/op', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ op: 'agent.sessions', args: { id: vault.id } }),
+          }),
+          request('/op', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ op: 'workspace.list', args: {} }),
+          }),
+        ])
+          .then(([sessionPayload, workspacePayload]) => {
+            if (!live) return
+            const sessions = sessionPayload.value?.sessions ?? []
+            const workspaces = workspacePayload.value?.workspaces ?? []
+            setSessionsInfo({ sessions, workspaces })
+            setSessionsWorkspace(current => {
+              if (current !== '' && workspaces.some(item => item.id === current)) return current
+              const recent = sessions.find(item => item.workspaceId !== '')
+              return recent?.workspaceId ?? workspaces[0]?.id ?? ''
+            })
+          })
+          .catch(error => {
+            if (live) setFailure(String(error?.message ?? error))
+          })
+        return () => {
+          live = false
+        }
+      }, [vault?.id, tab, sessionsVersion])
+
+      useEffect(() => {
         if (data) setDirDraft(data.knowledgeDirConfigured ?? '')
       }, [data?.knowledgeDirConfigured])
 
@@ -723,8 +786,57 @@ window.__ModuleLoader__.load({
           setFailure(t('handoffNoWorkspace'))
           return
         }
-        ui.startSession()
+        // Inherit the source session's workspace, not whatever tab was last used.
+        ui.startSession(armed.workspaceId || undefined)
         setHandoffVersion(item => item + 1)
+      }
+
+      const sessionsUi = () => (typeof props.uiWorkspace === 'function' ? props.uiWorkspace() : undefined)
+
+      const openBoundSession = sessionId => {
+        const ui = sessionsUi()
+        if (!ui || typeof ui.openSession !== 'function') {
+          setFailure(t('handoffNoWorkspace'))
+          return
+        }
+        ui.openSession(sessionId)
+      }
+
+      const newBoundSession = async () => {
+        if (!vault) return
+        const ui = sessionsUi()
+        if (!ui || typeof ui.openSession !== 'function') {
+          setFailure(t('handoffNoWorkspace'))
+          return
+        }
+        const created = await call('agent.newSession', { id: vault.id, workspaceId: sessionsWorkspace })
+        if (created?.sessionId) {
+          ui.openSession(created.sessionId)
+          setSessionsVersion(value => value + 1)
+        }
+      }
+
+      const switchWorkspace = async () => {
+        if (sessionsWorkspace === '') return
+        const ui = sessionsUi()
+        if (!ui || typeof ui.openWorkspace !== 'function') {
+          setFailure(t('handoffNoWorkspace'))
+          return
+        }
+        try {
+          await ui.openWorkspace(sessionsWorkspace)
+        } catch (error) {
+          setFailure(String(error?.message ?? error))
+        }
+      }
+
+      const saveHideBound = async checked => {
+        await call('settings.save', { hideBoundSessions: checked })
+      }
+
+      const unbindBoundSession = async sessionId => {
+        await unbindSession(sessionId)
+        setSessionsVersion(value => value + 1)
       }
 
       const journalOpen = async entryId => {
@@ -1300,6 +1412,101 @@ window.__ModuleLoader__.load({
                 ),
               ),
         )
+      } else if (tab === 'sessions') {
+        body = h(
+          'div',
+          { className: 'am-split' },
+          h('p', { className: 'am-note' }, t('sessionsHint')),
+          h(
+            'div',
+            { className: 'am-card' },
+            h(
+              Field,
+              { label: t('sessionsWorkspace') },
+              h(
+                'div',
+                { className: 'am-row' },
+                h(
+                  'select',
+                  {
+                    className: 'am-input',
+                    style: { flex: '1 1 200px', width: 'auto' },
+                    value: sessionsWorkspace,
+                    disabled: busy !== '' || (sessionsInfo.workspaces ?? []).length === 0,
+                    onChange: event => setSessionsWorkspace(event.target.value),
+                  },
+                  (sessionsInfo.workspaces ?? []).map(item =>
+                    h('option', { key: item.id, value: item.id }, item.title || item.path),
+                  ),
+                ),
+                h(
+                  'button',
+                  {
+                    className: 'am-btn am-btn-sm',
+                    disabled: busy !== '' || sessionsWorkspace === '',
+                    onClick: () => void switchWorkspace(),
+                  },
+                  t('sessionsSwitch'),
+                ),
+                h(
+                  'button',
+                  {
+                    className: 'am-btn am-btn-sm am-btn-primary',
+                    disabled: busy !== '' || sessionsWorkspace === '',
+                    onClick: () => void newBoundSession(),
+                  },
+                  t('sessionsNew'),
+                ),
+              ),
+            ),
+          ),
+          h('span', { className: 'am-label' }, t('sessionsTitle')),
+          (sessionsInfo.sessions ?? []).length === 0
+            ? h('p', { className: 'am-note-dim' }, t('sessionsEmpty'))
+            : h(
+                'div',
+                { className: 'am-list' },
+                sessionsInfo.sessions.map(session =>
+                  h(
+                    'div',
+                    { key: session.sessionId, className: 'am-card' },
+                    h(
+                      'div',
+                      { className: 'am-row' },
+                      h('span', { className: 'am-usage-title' }, session.title || t('untitled')),
+                      h('span', { className: 'am-tag' }, session.workspaceTitle || t('sessionsNoWorkspace')),
+                      session.running ? h('span', { className: 'am-tag' }, t('running')) : null,
+                      h('span', { style: { flex: 1 } }),
+                      h(
+                        'button',
+                        {
+                          className: 'am-btn am-btn-sm am-btn-primary',
+                          disabled: busy !== '',
+                          onClick: () => openBoundSession(session.sessionId),
+                        },
+                        t('sessionsOpen'),
+                      ),
+                      h(
+                        'button',
+                        {
+                          className: 'am-btn am-btn-sm am-btn-ghost',
+                          disabled: busy !== '',
+                          onClick: () => void unbindBoundSession(session.sessionId),
+                        },
+                        t('usageUnbind'),
+                      ),
+                    ),
+                    h(
+                      'div',
+                      { className: 'am-row' },
+                      h('span', { className: 'am-mono' }, session.sessionId.slice(0, 13)),
+                      session.updatedAt ? h('span', { className: 'am-note-dim' }, ago(session.updatedAt, locale)) : null,
+                      session.visible === false ? h('span', { className: 'am-note-dim' }, t('sessionsGone')) : null,
+                    ),
+                  ),
+                ),
+              ),
+        )
       } else if (tab === 'knowledge') {
         body = editor
           ? h(
@@ -1458,6 +1665,17 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
+            { className: 'am-card' },
+            h(Switch, {
+              checked: data.hideBoundSessions !== false,
+              label: t('hideBound'),
+              hint: t('hideBoundHint'),
+              disabled: busy !== '',
+              onChange: checked => void saveHideBound(checked),
+            }),
+          ),
+          h(
+            'div',
             { className: 'am-card am-danger-card' },
             h('span', { className: 'am-label' }, t('danger')),
             h('p', { className: 'am-note-dim' }, t('deleteVaultHint')),
@@ -1504,7 +1722,7 @@ window.__ModuleLoader__.load({
             ? h(
                 'nav',
                 { className: 'am-tabs' },
-                ['memory', 'knowledge', 'journal', 'handoff', 'settings'].map(key =>
+                ['memory', 'sessions', 'knowledge', 'journal', 'handoff', 'settings'].map(key =>
                   h(
                     'button',
                     {
@@ -1518,7 +1736,7 @@ window.__ModuleLoader__.load({
                         }
                       },
                     },
-                    key === 'memory' ? t('memory') : key === 'knowledge' ? t('knowledge') : key === 'journal' ? t('journal') : key === 'handoff' ? t('handoff') : t('settings'),
+                    key === 'sessions' ? t('sessionsTab') : t(key),
                   ),
                 ),
               )
@@ -1718,6 +1936,41 @@ window.__ModuleLoader__.load({
         document.head.appendChild(style)
         return () => style.remove()
       }, 'agent-memory: styles')
+
+      // Bound conversations live under their agent, not the workspace list.
+      // DSH offers no filter seat for that list, so hide its rows by session id.
+      ctx.effect(() => {
+        const style = document.createElement('style')
+        style.setAttribute('data-plugin', 'agent-memory-hide')
+        document.head.appendChild(style)
+        let stopped = false
+        let applied = ''
+        const sync = async () => {
+          try {
+            const payload = await request('/state')
+            if (stopped) return
+            const state = payload.state
+            const ids = state?.hideBoundSessions === false ? [] : (state?.bindings ?? []).map(item => item.sessionId)
+            const css = ids
+              .filter(id => typeof id === 'string' && id !== '')
+              .map(id => `[data-row-key="session:${id}"]{display:none!important}`)
+              .join('')
+            if (css !== applied) {
+              style.textContent = css
+              applied = css
+            }
+          } catch {
+            /* the API may not be mounted yet */
+          }
+        }
+        void sync()
+        const timer = setInterval(() => void sync(), 5000)
+        return () => {
+          stopped = true
+          clearInterval(timer)
+          style.remove()
+        }
+      }, 'agent-memory: hide bound sessions')
 
       const locale = () => {
         try {

@@ -514,6 +514,75 @@ function modelOf(ctx, sessionId) {
   return undefined
 }
 
+function normalizePath(value) {
+  return String(value ?? '')
+    .replace(/[\\/]+/g, '\\')
+    .replace(/\\$/, '')
+    .toLowerCase()
+}
+
+function listWorkspaces(ctx) {
+  try {
+    const registry = ctx.get('workspaceRegistry')
+    if (registry === undefined || typeof registry.list !== 'function') return []
+    return registry
+      .list()
+      .map(item => ({
+        id: String(item.id ?? ''),
+        title: String(item.title ?? ''),
+        path: String(item.path ?? ''),
+        sessionCount: Array.isArray(item.sessionIds) ? item.sessionIds.length : 0,
+      }))
+      .filter(item => item.id !== '')
+  } catch {
+    return []
+  }
+}
+
+function workspaceIdOf(ctx, cwd) {
+  const target = normalizePath(cwd)
+  if (target === '') return ''
+  const match = listWorkspaces(ctx).find(item => normalizePath(item.path) === target)
+  return match?.id ?? ''
+}
+
+/** Bound sessions of one agent, enriched with the Session summary and Workspace. */
+async function agentSessions(ctx, store, agentId) {
+  const bound = store.listBindings().filter(item => item.agentId === agentId)
+  let summaries = []
+  try {
+    const controller = ctx.get('sessionController')
+    if (controller !== undefined && typeof controller.list === 'function') {
+      const value = await controller.list({}, new AbortController().signal)
+      summaries = Array.isArray(value?.items) ? value.items : []
+    }
+  } catch {
+    summaries = []
+  }
+  const byId = new Map(summaries.map(item => [String(item.sessionId), item]))
+  const workspaces = listWorkspaces(ctx)
+  const byPath = new Map(workspaces.map(item => [normalizePath(item.path), item]))
+  const sessions = bound
+    .map(item => {
+      const summary = byId.get(item.sessionId)
+      const cwd = typeof summary?.cwd === 'string' ? summary.cwd : ''
+      const workspace = cwd === '' ? undefined : byPath.get(normalizePath(cwd))
+      const title = item.title || sessionTitleOf(ctx, item.sessionId) || ''
+      return {
+        sessionId: item.sessionId,
+        title,
+        cwd,
+        workspaceId: workspace?.id ?? '',
+        workspaceTitle: workspace?.title ?? '',
+        updatedAt: Number(summary?.updatedAt) || 0,
+        running: summary?.running === true,
+        visible: summary !== undefined,
+      }
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+  return { sessions }
+}
+
 function writeCheckpoint(ctx, store, journals, handoff, input) {
   try {
     const state = store.state()
@@ -756,7 +825,7 @@ function rejectionFor(ctx, req) {
   return structuralRejection(req)
 }
 
-function handleOp(ctx, store, rooms, journals, handoff, op, args) {
+async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
   switch (op) {
     case 'state':
       return store.state()
@@ -832,16 +901,40 @@ function handleOp(ctx, store, rooms, journals, handoff, op, args) {
       const sessionId = String(args.sessionId ?? '')
       const agentId = store.bindingOf(sessionId)
       if (agentId === '') throw new MemoryError('no-agent', 'bind an agent to this session first')
+      const cwd = sessionCwd(ctx, sessionId)
       const next = handoff.armNext(sessionId, {
         agentId,
-        cwd: sessionCwd(ctx, sessionId),
+        cwd,
         approval: approvalOf(ctx, sessionId),
         model: modelOf(ctx, sessionId),
       })
-      return { sessionId, agentId, next }
+      return { sessionId, agentId, workspaceId: workspaceIdOf(ctx, cwd), next }
+    }
+    case 'workspace.list':
+      return { workspaces: listWorkspaces(ctx) }
+    case 'agent.sessions':
+      return agentSessions(ctx, store, String(args.id ?? ''))
+    case 'agent.newSession': {
+      const agentId = String(args.id ?? '')
+      if (!store.state().vaults.some(item => item.id === agentId)) {
+        throw new MemoryError('no-vault', `unknown agent: ${agentId || '(empty)'}`)
+      }
+      const workspaceId = String(args.workspaceId ?? '')
+      const workspace = workspaceId === '' ? undefined : listWorkspaces(ctx).find(item => item.id === workspaceId)
+      const controller = ctx.get('sessionController')
+      if (controller === undefined || typeof controller.create !== 'function') {
+        throw new MemoryError('no-sessions', 'this composition cannot create sessions')
+      }
+      const created = await controller.create({
+        ...(workspace === undefined ? {} : { workspaceId: workspace.id, cwd: workspace.path }),
+      })
+      const sessionId = String(created?.sessionId ?? '')
+      if (sessionId === '') throw new MemoryError('no-session', 'session creation returned no id')
+      store.setBinding({ sessionId, agentId })
+      return { agentId, sessionId, workspaceId: workspace?.id ?? '', workspaceTitle: workspace?.title ?? '' }
     }
     case 'settings.save':
-      store.saveSettings({ knowledgeDir: args.knowledgeDir })
+      store.saveSettings({ knowledgeDir: args.knowledgeDir, hideBoundSessions: args.hideBoundSessions })
       return store.state()
     default:
       throw new MemoryError('bad-op', `unknown operation: ${String(op)}`)
@@ -872,7 +965,7 @@ function registerApi(ctx, store, rooms, journals, handoff, hints) {
           const body = await readJson(req)
           const op = String(body?.op ?? '')
           const args = body?.args && typeof body.args === 'object' ? body.args : {}
-          const value = handleOp(ctx, store, rooms, journals, handoff, op, args)
+          const value = await handleOp(ctx, store, rooms, journals, handoff, op, args)
           return json(res, 200, { ok: true, value, state: store.state() })
         }
         return json(res, 404, { error: { code: 'not-found', message: `no route ${method} ${route}` } })
