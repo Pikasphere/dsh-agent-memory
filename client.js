@@ -1979,11 +1979,15 @@ window.__ModuleLoader__.load({
         let lastAgents = []
         let observer = null
         let observedRoot = null
-        const expanded = new Set()
+        const collapsed = new Set()
+        let lastSignature = ''
         const escape = value =>
           String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch])
 
         const renderSection = host => {
+          const signature = JSON.stringify([sectionOpen, [...collapsed], lastAgents])
+          if (signature === lastSignature) return
+          lastSignature = signature
           if (lastAgents.length === 0) {
             host.hidden = true
             host.innerHTML = ''
@@ -2002,7 +2006,7 @@ window.__ModuleLoader__.load({
             ? `<div class="am-side-agents-list">` +
               lastAgents
                 .map(agent => {
-                  const open = expanded.has(agent.agentId)
+                  const open = !collapsed.has(agent.agentId)
                   const rows = open
                     ? `<div class="am-side-sessions">` +
                       agent.sessions
@@ -2040,6 +2044,7 @@ window.__ModuleLoader__.load({
             host = document.createElement('div')
             host.id = 'am-sidebar-agents'
             host.className = 'am-side-agents'
+            lastSignature = ''
             host.addEventListener('click', event => {
               const target = event.target.closest('[data-action]')
               if (target === null) return
@@ -2053,8 +2058,8 @@ window.__ModuleLoader__.load({
               } else if (action === 'toggle-agent') {
                 const agentId = target.closest('[data-agent]')?.getAttribute('data-agent') ?? ''
                 if (agentId === '') return
-                if (expanded.has(agentId)) expanded.delete(agentId)
-                else expanded.add(agentId)
+                if (collapsed.has(agentId)) collapsed.delete(agentId)
+                else collapsed.add(agentId)
                 renderSection(host)
               } else if (action === 'open') {
                 const sessionId = target.getAttribute('data-session') ?? ''
