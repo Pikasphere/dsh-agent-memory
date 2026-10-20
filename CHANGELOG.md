@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0-beta.2 — 2026-10-20
+
+### 新增
+
+- **侧栏「智能体对话」区**：挂在工作区列表上方，按智能体分组列出已绑定对话（对话名 + 工作区 + 运行点），点一条直接打开；点标题打开智能体面板；可以整体折叠或按智能体折叠。数据来自新的 `bound.list` 主机操作。
+- 该区只在主机支持 `bound.list` 时出现（旧进程里不会留下空壳）。
+
+### 修复
+
+- `agent.newSession` 之前同时传 `workspaceId` 和 `cwd`，DSH 会拒绝（`session.create accepts workspaceId or cwd, not both`）；现在只传工作区。
+
 ## 1.2.0-beta.1 — 2026-10-20
 
 ### 新增

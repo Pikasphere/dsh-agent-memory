@@ -547,18 +547,22 @@ function workspaceIdOf(ctx, cwd) {
 }
 
 /** Bound sessions of one agent, enriched with the Session summary and Workspace. */
-async function agentSessions(ctx, store, agentId) {
-  const bound = store.listBindings().filter(item => item.agentId === agentId)
-  let summaries = []
+async function sessionSummaries(ctx) {
   try {
     const controller = ctx.get('sessionController')
     if (controller !== undefined && typeof controller.list === 'function') {
       const value = await controller.list({}, new AbortController().signal)
-      summaries = Array.isArray(value?.items) ? value.items : []
+      return Array.isArray(value?.items) ? value.items : []
     }
   } catch {
-    summaries = []
+    /* fall through */
   }
+  return []
+}
+
+async function agentSessions(ctx, store, agentId) {
+  const bound = store.listBindings().filter(item => item.agentId === agentId)
+  const summaries = await sessionSummaries(ctx)
   const byId = new Map(summaries.map(item => [String(item.sessionId), item]))
   const workspaces = listWorkspaces(ctx)
   const byPath = new Map(workspaces.map(item => [normalizePath(item.path), item]))
@@ -581,6 +585,38 @@ async function agentSessions(ctx, store, agentId) {
     })
     .sort((a, b) => b.updatedAt - a.updatedAt)
   return { sessions }
+}
+
+/** Every bound session grouped by agent, for the sidebar section. */
+async function allBoundSessions(ctx, store) {
+  const summaries = await sessionSummaries(ctx)
+  const byId = new Map(summaries.map(item => [String(item.sessionId), item]))
+  const workspaces = listWorkspaces(ctx)
+  const byPath = new Map(workspaces.map(item => [normalizePath(item.path), item]))
+  const names = new Map(store.state().vaults.map(item => [item.id, item.name]))
+  const grouped = new Map()
+  for (const item of store.listBindings()) {
+    const name = names.get(item.agentId)
+    if (name === undefined) continue
+    const summary = byId.get(item.sessionId)
+    const cwd = typeof summary?.cwd === 'string' ? summary.cwd : ''
+    const workspace = cwd === '' ? undefined : byPath.get(normalizePath(cwd))
+    const session = {
+      sessionId: item.sessionId,
+      title: item.title || sessionTitleOf(ctx, item.sessionId) || '',
+      workspaceTitle: workspace?.title ?? '',
+      updatedAt: Number(summary?.updatedAt) || 0,
+      running: summary?.running === true,
+    }
+    if (!grouped.has(item.agentId)) grouped.set(item.agentId, { agentId: item.agentId, name, sessions: [] })
+    grouped.get(item.agentId).sessions.push(session)
+  }
+  const agents = [...grouped.values()].map(group => ({
+    ...group,
+    sessions: group.sessions.sort((a, b) => b.updatedAt - a.updatedAt),
+  }))
+  agents.sort((a, b) => (b.sessions[0]?.updatedAt ?? 0) - (a.sessions[0]?.updatedAt ?? 0))
+  return { agents }
 }
 
 function writeCheckpoint(ctx, store, journals, handoff, input) {
@@ -914,6 +950,8 @@ async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
       return { workspaces: listWorkspaces(ctx) }
     case 'agent.sessions':
       return agentSessions(ctx, store, String(args.id ?? ''))
+    case 'bound.list':
+      return allBoundSessions(ctx, store)
     case 'agent.newSession': {
       const agentId = String(args.id ?? '')
       if (!store.state().vaults.some(item => item.id === agentId)) {
@@ -926,7 +964,7 @@ async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
         throw new MemoryError('no-sessions', 'this composition cannot create sessions')
       }
       const created = await controller.create({
-        ...(workspace === undefined ? {} : { workspaceId: workspace.id, cwd: workspace.path }),
+        ...(workspace === undefined ? {} : { workspaceId: workspace.id }),
       })
       const sessionId = String(created?.sessionId ?? '')
       if (sessionId === '') throw new MemoryError('no-session', 'session creation returned no id')
@@ -943,7 +981,7 @@ async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
 
 function registerApi(ctx, store, rooms, journals, handoff, hints) {
   /** Store state plus the capabilities this host build exposes to the panel. */
-  const publicState = () => ({ ...store.state(), capabilities: { sessions: true } })
+  const publicState = () => ({ ...store.state(), capabilities: { sessions: true, bound: true } })
   // `webServer` is published after plugins load in the Web composition, so this
   // must pend on the service instead of reading it once at apply time.
   ctx.inject(['webServer'], scoped => {

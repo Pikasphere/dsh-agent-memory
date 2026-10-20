@@ -152,6 +152,10 @@ window.__ModuleLoader__.load({
         running: '运行中',
         hideBound: '已绑定对话不在工作区显示',
         hideBoundHint: '绑定到智能体的对话从左侧工作区列表里隐藏；在本页签按智能体查找和打开。',
+        sidebarAgents: '智能体对话',
+        sidebarCollapse: '收起',
+        sidebarExpand: '展开',
+        sidebarPanel: '打开智能体面板',
       },
       en: {
         nav: 'Agents',
@@ -284,6 +288,10 @@ window.__ModuleLoader__.load({
         running: 'running',
         hideBound: 'Hide bound conversations from workspaces',
         hideBoundHint: 'Conversations bound to an agent are hidden in the workspace list and found here, per agent.',
+        sidebarAgents: 'Agent conversations',
+        sidebarCollapse: 'Collapse',
+        sidebarExpand: 'Expand',
+        sidebarPanel: 'Open the Agents panel',
       },
     }
 
@@ -351,6 +359,25 @@ window.__ModuleLoader__.load({
 .am-divider{height:1px;background:var(--dsw-alias-border-l1);margin:4px 0}
 .am-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .am-usage-title{font-weight:600;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.am-side-agents{flex:none;display:flex;flex-direction:column;padding:8px 12px 6px;border-top:1px solid var(--dsw-alias-border-l1)}
+.am-side-agents.is-collapsed .am-side-agents-list{display:none}
+.am-side-agents-head{display:flex;align-items:center;gap:6px;padding:2px 2px 6px}
+.am-side-agents-title{font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary);background:none;border:0;padding:0;cursor:pointer;font-family:inherit}
+.am-side-agents-title:hover{color:var(--dsw-alias-label-primary)}
+.am-side-agents-count{margin-left:auto;font-size:10.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.am-side-agents-toggle{background:none;border:0;color:var(--dsw-alias-label-tertiary);cursor:pointer;font:inherit;padding:0 2px;line-height:1}
+.am-side-agents-list{display:flex;flex-direction:column;gap:1px;max-height:240px;overflow:auto}
+.am-side-agent{display:flex;flex-direction:column}
+.am-side-agent-row{display:flex;align-items:center;gap:6px;width:100%;padding:5px 6px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
+.am-side-agent-row:hover{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 80%,transparent)}
+.am-side-agent-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.am-side-agent-count{font-size:10.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.am-side-sessions{display:flex;flex-direction:column;gap:1px;padding:0 0 3px 10px}
+.am-side-session{display:flex;align-items:center;gap:6px;width:100%;padding:4px 6px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;cursor:pointer;text-align:left}
+.am-side-session:hover{background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 80%,transparent);color:var(--dsw-alias-label-primary)}
+.am-side-session-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.am-side-session-ws{font-size:10px;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.am-side-session-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);flex:none}
 .am-view-tabs{display:flex;gap:4px;padding:0 10px 8px}
 .am-view-tab{flex:1;padding:5px 8px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .am-view-tab:hover{color:var(--dsw-alias-label-primary)}
@@ -1940,13 +1967,113 @@ window.__ModuleLoader__.load({
       }, 'agent-memory: styles')
 
       // Bound conversations live under their agent, not the workspace list.
-      // DSH offers no filter seat for that list, so hide its rows by session id.
+      // DSH offers no filter seat for that list, so hide its rows by session id
+      // and mount an agent-shaped section right above the workspace browser.
       ctx.effect(() => {
         const style = document.createElement('style')
         style.setAttribute('data-plugin', 'agent-memory-hide')
         document.head.appendChild(style)
         let stopped = false
         let applied = ''
+        let sectionOpen = true
+        let lastAgents = []
+        let observer = null
+        let observedRoot = null
+        const expanded = new Set()
+        const escape = value =>
+          String(value ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch])
+
+        const renderSection = host => {
+          if (lastAgents.length === 0) {
+            host.hidden = true
+            host.innerHTML = ''
+            return
+          }
+          host.hidden = false
+          host.classList.toggle('is-collapsed', !sectionOpen)
+          const total = lastAgents.reduce((sum, agent) => sum + agent.sessions.length, 0)
+          const head =
+            `<div class="am-side-agents-head">` +
+            `<button type="button" class="am-side-agents-title" data-action="panel" title="${escape(t('sidebarPanel'))}">${escape(t('sidebarAgents'))}</button>` +
+            `<span class="am-side-agents-count">${total}</span>` +
+            `<button type="button" class="am-side-agents-toggle" data-action="toggle-section" aria-label="${escape(sectionOpen ? t('sidebarCollapse') : t('sidebarExpand'))}">${sectionOpen ? '▾' : '▸'}</button>` +
+            `</div>`
+          const body = sectionOpen
+            ? `<div class="am-side-agents-list">` +
+              lastAgents
+                .map(agent => {
+                  const open = expanded.has(agent.agentId)
+                  const rows = open
+                    ? `<div class="am-side-sessions">` +
+                      agent.sessions
+                        .map(
+                          session =>
+                            `<button type="button" class="am-side-session" data-action="open" data-session="${escape(session.sessionId)}">` +
+                            `<span class="am-side-session-title">${escape(session.title || t('untitled'))}</span>` +
+                            `<span class="am-side-session-ws">${escape(session.workspaceTitle || t('sessionsNoWorkspace'))}</span>` +
+                            (session.running ? '<span class="am-side-session-dot"></span>' : '') +
+                            `</button>`,
+                        )
+                        .join('') +
+                      `</div>`
+                    : ''
+                  return (
+                    `<div class="am-side-agent" data-agent="${escape(agent.agentId)}">` +
+                    `<button type="button" class="am-side-agent-row" data-action="toggle-agent">` +
+                    `<span class="am-side-agent-name">${escape(agent.name)}</span>` +
+                    `<span class="am-side-agent-count">${agent.sessions.length}</span>` +
+                    `</button>${rows}</div>`
+                  )
+                })
+                .join('') +
+              `</div>`
+            : ''
+          host.innerHTML = head + body
+        }
+
+        const mount = () => {
+          const area = document.querySelector('[class*="regionArea"]')
+          const root = area?.parentElement
+          if (!area || !root) return
+          let host = document.getElementById('am-sidebar-agents')
+          if (host === null) {
+            host = document.createElement('div')
+            host.id = 'am-sidebar-agents'
+            host.className = 'am-side-agents'
+            host.addEventListener('click', event => {
+              const target = event.target.closest('[data-action]')
+              if (target === null) return
+              const action = target.getAttribute('data-action')
+              if (action === 'panel') {
+                const layout = ctx.get('layout')
+                if (layout !== undefined && typeof layout.selectPanel === 'function') layout.selectPanel('agent-memory')
+              } else if (action === 'toggle-section') {
+                sectionOpen = !sectionOpen
+                renderSection(host)
+              } else if (action === 'toggle-agent') {
+                const agentId = target.closest('[data-agent]')?.getAttribute('data-agent') ?? ''
+                if (agentId === '') return
+                if (expanded.has(agentId)) expanded.delete(agentId)
+                else expanded.add(agentId)
+                renderSection(host)
+              } else if (action === 'open') {
+                const sessionId = target.getAttribute('data-session') ?? ''
+                const ui = ctx.get('uiWorkspace')
+                if (sessionId !== '' && ui !== undefined && typeof ui.openSession === 'function') ui.openSession(sessionId)
+              }
+            })
+          }
+          if (host.parentElement !== root || host.nextElementSibling !== area) root.insertBefore(host, area)
+          if (observedRoot !== root) {
+            observer?.disconnect()
+            observedRoot = root
+            observer = new MutationObserver(() => {
+              if (!root.contains(host)) root.insertBefore(host, area)
+            })
+            observer.observe(root, { childList: true })
+          }
+        }
+
         const sync = async () => {
           try {
             const payload = await request('/state')
@@ -1961,6 +2088,21 @@ window.__ModuleLoader__.load({
               style.textContent = css
               applied = css
             }
+            if (state?.capabilities?.bound === true) {
+              const boundPayload = await request('/op', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ op: 'bound.list', args: {} }),
+              })
+              if (stopped) return
+              lastAgents = boundPayload.value?.agents ?? []
+              mount()
+              const host = document.getElementById('am-sidebar-agents')
+              if (host !== null) renderSection(host)
+            } else {
+              lastAgents = []
+              document.getElementById('am-sidebar-agents')?.remove()
+            }
           } catch {
             /* the API may not be mounted yet */
           }
@@ -1970,7 +2112,9 @@ window.__ModuleLoader__.load({
         return () => {
           stopped = true
           clearInterval(timer)
+          observer?.disconnect()
           style.remove()
+          document.getElementById('am-sidebar-agents')?.remove()
         }
       }, 'agent-memory: hide bound sessions')
 

@@ -341,8 +341,13 @@ assert.equal(gone.workspaceId, '')
 
 const newSessionResult = await call('POST', '/op', { op: 'agent.newSession', args: { id, workspaceId: 'w-work' } })
 assert.equal(newSessionResult.payload.value.sessionId, 'session-created')
-assert.deepEqual(createCalls[0], { workspaceId: 'w-work', cwd: 'E:\\work' })
+assert.deepEqual(createCalls[0], { workspaceId: 'w-work' })
 assert.ok((await bindings()).some(item => item.sessionId === 'session-created' && item.agentId === id))
+
+const boundGroups = await call('POST', '/op', { op: 'bound.list', args: {} })
+const demoGroup = boundGroups.payload.value.agents.find(item => item.agentId === id)
+assert.ok(demoGroup !== undefined)
+assert.ok(demoGroup.sessions.some(item => item.sessionId === 'session-created'))
 
 const armedAgain = await call('POST', '/op', { op: 'handoff.arm', args: { sessionId: 'session-test-1234' } })
 assert.equal(armedAgain.payload.value.workspaceId, 'w-work')

@@ -22,6 +22,17 @@
 
 每行可以「打开」（`uiWorkspace.openSession`）或「解绑」。日志已不存在（会话删了但绑定还在）会标出来。
 
+## 侧栏「智能体对话」区（1.2.0-beta.2）
+
+DSH 的侧栏没有「再加一个工作区」的插槽（`sidebar.workspaces` 是 single，替换等于重写整个浏览器），所以这块是客户端 DOM 扩展：
+
+- 找一个稳定锚点：`[class*="regionArea"]`（工作区浏览器所在的滚动区域），把 `<div id="am-sidebar-agents">` 插到它前面，视觉上就在「工作区」上方；
+- 内容按智能体分组：智能体名 + 会话数，展开后是会话行（标题 + 工作区 + 运行小圆点），点击 `uiWorkspace.openSession` 打开；点标题走 `layout.selectPanel('agent-memory')`；
+- 数据来自新的主机操作 `bound.list`（绑定表 + `sessionController.list` + `workspaceRegistry`），5 秒轮询；
+- React 重渲染可能移掉节点：对侧栏 root 挂 `MutationObserver` 立即插回，5 秒轮询作为兜底；
+- 只在 `state.capabilities.bound === true` 时出现，旧主机不会留下空壳；
+- 可整体折叠、按智能体折叠（折叠状态在内存里，刷新重置）。
+
 ## 工作区选择
 
 页签顶部是一个工作区下拉：
