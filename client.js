@@ -156,6 +156,15 @@ window.__ModuleLoader__.load({
         sidebarCollapse: '收起',
         sidebarExpand: '展开',
         sidebarPanel: '打开智能体面板',
+        archiveWeak: '弱归档',
+        archiveStrong: '强归档',
+        archiveCancel: '取消归档',
+        archiveToStrong: '转为强归档',
+        archiveToWeak: '转为弱归档',
+        archiveDo: '归档',
+        archiveWeakHint: '已自动归档：可以查看历史，但不能继续对话。可以取消归档或转为强归档。',
+        archiveStrongHint: '强归档：只在对话页签里灰色显示，侧栏不出现；可以转回弱归档。',
+        archiveDoHint: '归档为只读，之后可以取消。',
       },
       en: {
         nav: 'Agents',
@@ -292,6 +301,15 @@ window.__ModuleLoader__.load({
         sidebarCollapse: 'Collapse',
         sidebarExpand: 'Expand',
         sidebarPanel: 'Open the Agents panel',
+        archiveWeak: 'weakly archived',
+        archiveStrong: 'strongly archived',
+        archiveCancel: 'Cancel archive',
+        archiveToStrong: 'Make strong',
+        archiveToWeak: 'Make weak',
+        archiveDo: 'Archive',
+        archiveWeakHint: 'Auto-archived: history stays readable, but the conversation cannot continue. Cancel it or promote it to strong.',
+        archiveStrongHint: 'Strongly archived: grey in the Sessions tab, hidden from the sidebar; can be turned back to weak.',
+        archiveDoHint: 'Archive as read-only; you can cancel later.',
       },
     }
 
@@ -378,6 +396,8 @@ window.__ModuleLoader__.load({
 .am-side-session-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .am-side-session-ws{font-size:10px;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .am-side-session-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);flex:none}
+.am-side-session.is-weak{opacity:.55}
+.am-card.is-strong{opacity:.5}
 .am-view-tabs{display:flex;gap:4px;padding:0 10px 8px}
 .am-view-tab{flex:1;padding:5px 8px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .am-view-tab:hover{color:var(--dsw-alias-label-primary)}
@@ -864,6 +884,11 @@ window.__ModuleLoader__.load({
       const unbindBoundSession = async sessionId => {
         await unbindSession(sessionId)
         setSessionsVersion(value => value + 1)
+      }
+
+      const setArchive = async (sessionId, level) => {
+        const value = await call('archive.set', { sessionId, level })
+        if (value) setSessionsVersion(item => item + 1)
       }
 
       const journalOpen = async entryId => {
@@ -1493,16 +1518,25 @@ window.__ModuleLoader__.load({
             : h(
                 'div',
                 { className: 'am-list' },
-                sessionsInfo.sessions.map(session =>
-                  h(
+                sessionsInfo.sessions.map(session => {
+                  const level = session.archive === 'strong' ? 'strong' : session.archive === 'weak' ? 'weak' : ''
+                  const canArchive = data?.capabilities?.archive === true
+                  return h(
                     'div',
-                    { key: session.sessionId, className: 'am-card' },
+                    { key: session.sessionId, className: `am-card${level === 'strong' ? ' is-strong' : ''}` },
                     h(
                       'div',
                       { className: 'am-row' },
                       h('span', { className: 'am-usage-title' }, session.title || t('untitled')),
                       h('span', { className: 'am-tag' }, session.workspaceTitle || t('sessionsNoWorkspace')),
                       session.running ? h('span', { className: 'am-tag' }, t('running')) : null,
+                      level !== ''
+                        ? h(
+                            'span',
+                            { className: 'am-tag', title: t(level === 'weak' ? 'archiveWeakHint' : 'archiveStrongHint') },
+                            t(level === 'weak' ? 'archiveWeak' : 'archiveStrong'),
+                          )
+                        : null,
                       h('span', { style: { flex: 1 } }),
                       h(
                         'button',
@@ -1513,25 +1547,74 @@ window.__ModuleLoader__.load({
                         },
                         t('sessionsOpen'),
                       ),
-                      h(
-                        'button',
-                        {
-                          className: 'am-btn am-btn-sm am-btn-ghost',
-                          disabled: busy !== '',
-                          onClick: () => void unbindBoundSession(session.sessionId),
-                        },
-                        t('usageUnbind'),
-                      ),
+                      canArchive && level === 'strong'
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm',
+                              disabled: busy !== '',
+                              onClick: () => void setArchive(session.sessionId, 'weak'),
+                            },
+                            t('archiveToWeak'),
+                          )
+                        : null,
+                      canArchive && level === 'weak'
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm am-btn-ghost',
+                              disabled: busy !== '',
+                              onClick: () => void setArchive(session.sessionId, ''),
+                            },
+                            t('archiveCancel'),
+                          )
+                        : null,
+                      canArchive && level === 'weak'
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm am-btn-ghost',
+                              disabled: busy !== '',
+                              onClick: () => void setArchive(session.sessionId, 'strong'),
+                            },
+                            t('archiveToStrong'),
+                          )
+                        : null,
+                      canArchive && level === ''
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm am-btn-ghost',
+                              title: t('archiveDoHint'),
+                              disabled: busy !== '',
+                              onClick: () => void setArchive(session.sessionId, 'weak'),
+                            },
+                            t('archiveDo'),
+                          )
+                        : null,
+                      level === ''
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm am-btn-ghost',
+                              disabled: busy !== '',
+                              onClick: () => void unbindBoundSession(session.sessionId),
+                            },
+                            t('usageUnbind'),
+                          )
+                        : null,
                     ),
                     h(
                       'div',
                       { className: 'am-row' },
                       h('span', { className: 'am-mono' }, session.sessionId.slice(0, 13)),
                       session.updatedAt ? h('span', { className: 'am-note-dim' }, ago(session.updatedAt, locale)) : null,
-                      session.visible === false ? h('span', { className: 'am-note-dim' }, t('sessionsGone')) : null,
+                      session.visible === false && session.archive === ''
+                        ? h('span', { className: 'am-note-dim' }, t('sessionsGone'))
+                        : null,
                     ),
-                  ),
-                ),
+                  )
+                }),
               ),
         )
       } else if (tab === 'knowledge') {
@@ -1988,14 +2071,20 @@ window.__ModuleLoader__.load({
           const signature = JSON.stringify([sectionOpen, [...collapsed], lastAgents])
           if (signature === lastSignature) return
           lastSignature = signature
-          if (lastAgents.length === 0) {
+          const visible = lastAgents
+            .map(agent => ({
+              ...agent,
+              sessions: agent.sessions.filter(session => session.archive !== 'strong'),
+            }))
+            .filter(agent => agent.sessions.length > 0)
+          if (visible.length === 0) {
             host.hidden = true
             host.innerHTML = ''
             return
           }
           host.hidden = false
           host.classList.toggle('is-collapsed', !sectionOpen)
-          const total = lastAgents.reduce((sum, agent) => sum + agent.sessions.length, 0)
+          const total = visible.reduce((sum, agent) => sum + agent.sessions.length, 0)
           const head =
             `<div class="am-side-agents-head">` +
             `<button type="button" class="am-side-agents-title" data-action="panel" title="${escape(t('sidebarPanel'))}">${escape(t('sidebarAgents'))}</button>` +
@@ -2004,20 +2093,22 @@ window.__ModuleLoader__.load({
             `</div>`
           const body = sectionOpen
             ? `<div class="am-side-agents-list">` +
-              lastAgents
+              visible
                 .map(agent => {
                   const open = !collapsed.has(agent.agentId)
                   const rows = open
                     ? `<div class="am-side-sessions">` +
                       agent.sessions
-                        .map(
-                          session =>
-                            `<button type="button" class="am-side-session" data-action="open" data-session="${escape(session.sessionId)}">` +
+                        .map(session => {
+                          const weak = session.archive === 'weak'
+                          return (
+                            `<button type="button" class="am-side-session${weak ? ' is-weak' : ''}" data-action="open" data-session="${escape(session.sessionId)}" title="${escape(weak ? t('archiveWeakHint') : session.title || '')}">` +
                             `<span class="am-side-session-title">${escape(session.title || t('untitled'))}</span>` +
                             `<span class="am-side-session-ws">${escape(session.workspaceTitle || t('sessionsNoWorkspace'))}</span>` +
                             (session.running ? '<span class="am-side-session-dot"></span>' : '') +
-                            `</button>`,
-                        )
+                            `</button>`
+                          )
+                        })
                         .join('') +
                       `</div>`
                     : ''

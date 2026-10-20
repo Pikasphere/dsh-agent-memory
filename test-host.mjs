@@ -262,11 +262,25 @@ ctx.get = name => {
       ],
     }
   }
+  if (name === 'workspaceController') {
+    return {
+      archiveSession: (sessionId, options) => {
+        archiveCalls.push({ sessionId, options })
+        return Promise.resolve()
+      },
+      unarchiveSession: sessionId => {
+        unarchiveCalls.push(sessionId)
+        return Promise.resolve()
+      },
+    }
+  }
   return undefined
 }
 const approvalCalls = []
 const modelCalls = []
 const createCalls = []
+const archiveCalls = []
+const unarchiveCalls = []
 const preStep = registered.handlers.find(item => item.event === 'agent/pre-step').handler
 await call('POST', '/op', { op: 'binding.set', args: { sessionId: 'session-test-1234', agentId: id } })
 await preStep({ agent: { id: 'session-test-1234' } }, async () => {})
@@ -323,6 +337,34 @@ assert.equal((await bindings()).some(item => item.sessionId === 'session-next-3'
 assert.deepEqual(approvalCalls, [['session-next-2', 'never']])
 assert.equal(modelCalls.length, 1)
 console.log('handoff next-session inheritance ok')
+
+// ── weak auto-archive + manual level changes ────────────────────────────────
+assert.deepEqual(archiveCalls[0], { sessionId: 'session-test-1234', options: { stopActivity: true } })
+const archivedRow = (await call('POST', '/op', { op: 'agent.sessions', args: { id } })).payload.value.sessions.find(
+  item => item.sessionId === 'session-test-1234',
+)
+assert.equal(archivedRow.archive, 'weak')
+
+const promoted = await call('POST', '/op', { op: 'archive.set', args: { sessionId: 'session-test-1234', level: 'strong' } })
+assert.equal(promoted.payload.value.level, 'strong')
+const strongRow = (await call('POST', '/op', { op: 'bound.list', args: {} })).payload.value.agents
+  .flatMap(agent => agent.sessions)
+  .find(item => item.sessionId === 'session-test-1234')
+assert.equal(strongRow.archive, 'strong')
+
+const cleared = await call('POST', '/op', { op: 'archive.set', args: { sessionId: 'session-test-1234', level: '' } })
+assert.equal(cleared.payload.value.level, '')
+assert.ok(unarchiveCalls.includes('session-test-1234'))
+assert.equal(
+  (await call('POST', '/op', { op: 'agent.sessions', args: { id } })).payload.value.sessions.find(
+    item => item.sessionId === 'session-test-1234',
+  ).archive,
+  '',
+)
+const badLevel = await call('POST', '/op', { op: 'archive.set', args: { sessionId: 'session-test-1234', level: 'gone' } })
+assert.equal(badLevel.status, 400)
+assert.equal(badLevel.payload.error.code, 'bad-level')
+console.log('archive levels ok')
 
 // ── workspace / sessions / new-session ops ──────────────────────────────────
 const workspaces = await call('POST', '/op', { op: 'workspace.list', args: {} })

@@ -33,6 +33,26 @@ DSH 的侧栏没有「再加一个工作区」的插槽（`sidebar.workspaces` �
 - 只在 `state.capabilities.bound === true` 时出现，旧主机不会留下空壳；
 - 可整体折叠、按智能体折叠（折叠状态在内存里，刷新重置）。
 
+## 自动归档：弱归档与强归档（1.2.0-beta.3）
+
+归档本身复用 DSH 原生机制（`workspaceController.archiveSession` / `unarchiveSession`）：
+
+- 归档后会话从工作区列表消失，并且 DSH 的 `agent/pre-step` 门禁会拦截新的回合——**能查看历史，不能继续对话**；
+- 工作区视图选项里有「全部对话（显示已归档）」，所以用户永远能找到被归档的会话；
+- 插件只记录一个**呈现级别**（`<memoryDir>/archives.json`）：
+  - `weak`：侧栏「智能体对话」和面板「对话」页签都显示；可打开查看；
+  - `strong`：侧栏隐藏，面板里灰色显示；可打开查看。
+
+自动化：检查点之后，若新会话通过 handoff 意图接管（续会话，或同目录新建），旧会话会被自动 `archiveSession({ stopActivity: true })` 并记为 `weak`。这一步在 `agent/created` 里做，因为检查点写入时旧会话还在自己的回合里，立刻归档会打断它。
+
+手动操作（面板「对话」页签）：
+
+- 弱归档：取消归档（真正 unarchive，恢复可对话）/ 转为强归档；
+- 强归档：转为弱归档；
+- 普通对话：归档为弱归档。
+
+归档后会话摘要可能不再出现在 `sessionController.list()` 里，所以 `archives.json` 会顺带存一份 cwd/标题快照，面板和侧栏仍然能显示它属于哪个工作区。
+
 ## 工作区选择
 
 页签顶部是一个工作区下拉：

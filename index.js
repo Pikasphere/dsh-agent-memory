@@ -24,6 +24,7 @@ import { createStore, defaultRoot, MemoryError } from './store.js'
 import { createJournals } from './journal.js'
 import { createRooms } from './rooms.js'
 import { createHandoff } from './handoff.js'
+import { createArchives, ARCHIVE_LEVELS } from './archive.js'
 
 const API_BASE = '/api/agent-memory'
 const MAX_BODY_BYTES = 1024 * 1024
@@ -42,13 +43,14 @@ export function apply(ctx, config = {}) {
   const rooms = createRooms({ rootDir: store.root })
   const journals = createJournals({ rootDir: store.root })
   const handoff = createHandoff({ rootDir: store.root })
+  const archives = createArchives({ rootDir: store.root })
   const hints = new Map()
 
   try {
     registerPrompt(ctx, store)
     registerTools(ctx, store, rooms, journals)
-    registerHandoff(ctx, store, journals, handoff, hints)
-    registerApi(ctx, store, rooms, journals, handoff, hints)
+    registerHandoff(ctx, store, journals, handoff, archives, hints)
+    registerApi(ctx, store, rooms, journals, handoff, archives, hints)
   } catch (error) {
     recordError(store, 'apply', error)
   }
@@ -560,7 +562,7 @@ async function sessionSummaries(ctx) {
   return []
 }
 
-async function agentSessions(ctx, store, agentId) {
+async function agentSessions(ctx, store, archives, agentId) {
   const bound = store.listBindings().filter(item => item.agentId === agentId)
   const summaries = await sessionSummaries(ctx)
   const byId = new Map(summaries.map(item => [String(item.sessionId), item]))
@@ -569,9 +571,18 @@ async function agentSessions(ctx, store, agentId) {
   const sessions = bound
     .map(item => {
       const summary = byId.get(item.sessionId)
-      const cwd = typeof summary?.cwd === 'string' ? summary.cwd : ''
+      const archiveEntry = archives.entryOf(item.sessionId)
+      const cwd =
+        typeof summary?.cwd === 'string'
+          ? summary.cwd
+          : typeof archiveEntry?.cwd === 'string'
+            ? archiveEntry.cwd
+            : ''
       const workspace = cwd === '' ? undefined : byPath.get(normalizePath(cwd))
-      const title = item.title || sessionTitleOf(ctx, item.sessionId) || ''
+      const title =
+        item.title ||
+        sessionTitleOf(ctx, item.sessionId) ||
+        (typeof archiveEntry?.title === 'string' ? archiveEntry.title : '')
       return {
         sessionId: item.sessionId,
         title,
@@ -581,6 +592,7 @@ async function agentSessions(ctx, store, agentId) {
         updatedAt: Number(summary?.updatedAt) || 0,
         running: summary?.running === true,
         visible: summary !== undefined,
+        archive: archives.levelOf(item.sessionId),
       }
     })
     .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -588,7 +600,7 @@ async function agentSessions(ctx, store, agentId) {
 }
 
 /** Every bound session grouped by agent, for the sidebar section. */
-async function allBoundSessions(ctx, store) {
+async function allBoundSessions(ctx, store, archives) {
   const summaries = await sessionSummaries(ctx)
   const byId = new Map(summaries.map(item => [String(item.sessionId), item]))
   const workspaces = listWorkspaces(ctx)
@@ -599,14 +611,24 @@ async function allBoundSessions(ctx, store) {
     const name = names.get(item.agentId)
     if (name === undefined) continue
     const summary = byId.get(item.sessionId)
-    const cwd = typeof summary?.cwd === 'string' ? summary.cwd : ''
+    const archiveEntry = archives.entryOf(item.sessionId)
+    const cwd =
+      typeof summary?.cwd === 'string'
+        ? summary.cwd
+        : typeof archiveEntry?.cwd === 'string'
+          ? archiveEntry.cwd
+          : ''
     const workspace = cwd === '' ? undefined : byPath.get(normalizePath(cwd))
     const session = {
       sessionId: item.sessionId,
-      title: item.title || sessionTitleOf(ctx, item.sessionId) || '',
+      title:
+        item.title ||
+        sessionTitleOf(ctx, item.sessionId) ||
+        (typeof archiveEntry?.title === 'string' ? archiveEntry.title : ''),
       workspaceTitle: workspace?.title ?? '',
       updatedAt: Number(summary?.updatedAt) || 0,
       running: summary?.running === true,
+      archive: archives.levelOf(item.sessionId),
     }
     if (!grouped.has(item.agentId)) grouped.set(item.agentId, { agentId: item.agentId, name, sessions: [] })
     grouped.get(item.agentId).sessions.push(session)
@@ -688,7 +710,7 @@ function handoffStatus(ctx, store, handoff) {
   return { config, capabilities: { arm: true }, sessions }
 }
 
-function registerHandoff(ctx, store, journals, handoff, hints) {
+function registerHandoff(ctx, store, journals, handoff, archives, hints) {
   ctx.effect(
     () =>
       ctx.on('agent/pre-step', async (payload, next) => {
@@ -769,6 +791,22 @@ function registerHandoff(ctx, store, journals, handoff, hints) {
                   applyModel().catch(retryError => recordError(store, 'handoff/select-model', retryError))
                 }, 500)
               }
+            }
+          }
+          // The conversation we just left is now superseded: park it as a weak
+          // archive (readable, no new turns) until the user cancels or promotes.
+          if (taken.sessionId !== sessionId) {
+            try {
+              const workspacesController = ctx.get('workspaceController')
+              if (workspacesController !== undefined && typeof workspacesController.archiveSession === 'function') {
+                await workspacesController.archiveSession(taken.sessionId, { stopActivity: true })
+                archives.setLevel(taken.sessionId, 'weak', {
+                  cwd: sessionCwd(ctx, taken.sessionId),
+                  title: sessionTitleOf(ctx, taken.sessionId),
+                })
+              }
+            } catch (error) {
+              recordError(store, 'handoff/archive', error)
             }
           }
         } catch (error) {
@@ -861,7 +899,7 @@ function rejectionFor(ctx, req) {
   return structuralRejection(req)
 }
 
-async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
+async function handleOp(ctx, store, rooms, journals, handoff, archives, op, args) {
   switch (op) {
     case 'state':
       return store.state()
@@ -949,9 +987,31 @@ async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
     case 'workspace.list':
       return { workspaces: listWorkspaces(ctx) }
     case 'agent.sessions':
-      return agentSessions(ctx, store, String(args.id ?? ''))
+      return agentSessions(ctx, store, archives, String(args.id ?? ''))
     case 'bound.list':
-      return allBoundSessions(ctx, store)
+      return allBoundSessions(ctx, store, archives)
+    case 'archive.set': {
+      const sessionId = String(args.sessionId ?? '')
+      if (sessionId === '') throw new MemoryError('bad-session', 'session id required')
+      const level = String(args.level ?? '')
+      if (level !== '' && !ARCHIVE_LEVELS.includes(level)) {
+        throw new MemoryError('bad-level', `unknown archive level: ${level}`)
+      }
+      const meta = { cwd: sessionCwd(ctx, sessionId), title: sessionTitleOf(ctx, sessionId) }
+      const workspacesController = ctx.get('workspaceController')
+      if (level === '') {
+        if (workspacesController !== undefined && typeof workspacesController.unarchiveSession === 'function') {
+          await workspacesController.unarchiveSession(sessionId)
+        }
+        archives.setLevel(sessionId, '')
+        return { sessionId, level: '' }
+      }
+      if (workspacesController !== undefined && typeof workspacesController.archiveSession === 'function') {
+        await workspacesController.archiveSession(sessionId, { stopActivity: true })
+      }
+      archives.setLevel(sessionId, level, meta)
+      return { sessionId, level }
+    }
     case 'agent.newSession': {
       const agentId = String(args.id ?? '')
       if (!store.state().vaults.some(item => item.id === agentId)) {
@@ -979,9 +1039,9 @@ async function handleOp(ctx, store, rooms, journals, handoff, op, args) {
   }
 }
 
-function registerApi(ctx, store, rooms, journals, handoff, hints) {
+function registerApi(ctx, store, rooms, journals, handoff, archives, hints) {
   /** Store state plus the capabilities this host build exposes to the panel. */
-  const publicState = () => ({ ...store.state(), capabilities: { sessions: true, bound: true } })
+  const publicState = () => ({ ...store.state(), capabilities: { sessions: true, bound: true, archive: true } })
   // `webServer` is published after plugins load in the Web composition, so this
   // must pend on the service instead of reading it once at apply time.
   ctx.inject(['webServer'], scoped => {
@@ -1005,7 +1065,7 @@ function registerApi(ctx, store, rooms, journals, handoff, hints) {
           const body = await readJson(req)
           const op = String(body?.op ?? '')
           const args = body?.args && typeof body.args === 'object' ? body.args : {}
-          const value = await handleOp(ctx, store, rooms, journals, handoff, op, args)
+          const value = await handleOp(ctx, store, rooms, journals, handoff, archives, op, args)
           return json(res, 200, { ok: true, value, state: publicState() })
         }
         return json(res, 404, { error: { code: 'not-found', message: `no route ${method} ${route}` } })
