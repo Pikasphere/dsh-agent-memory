@@ -1261,7 +1261,7 @@ window.__ModuleLoader__.load({
                           )
                         : null,
                       h('span', { style: { flex: 1 } }),
-                      session.stage === 'settled'
+                      handoffInfo?.capabilities?.arm === true && session.stage === 'settled'
                         ? h(
                             'button',
                             {

@@ -547,7 +547,7 @@ function handoffStatus(ctx, store, handoff) {
       armedAt: state?.next?.at,
     }
   })
-  return { config, sessions }
+  return { config, capabilities: { arm: true }, sessions }
 }
 
 function registerHandoff(ctx, store, journals, handoff, hints) {

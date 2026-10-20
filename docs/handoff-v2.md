@@ -66,6 +66,7 @@
 - `writeCheckpoint` 在 settle 时顺手 arm（带 `cwd`、`approval`）；
 - 主机监听 `agent/created`：只认 `startup`/`clear`，跳过 `origin === 'subagent'` 和已绑定的会话，按 cwd 匹配、一次性消费，然后 `setBinding` + `approval.setPolicy`；
 - 面板对 `settled` 行显示「续会话」主按钮：先调 `handoff.arm` 刷新意图，再 `uiWorkspace.startSession()`；`armed` 的会话显示「待续」标签；
+- `handoff.status` 返回 `capabilities.arm`，旧主机（没重启）下按钮自动隐藏，不会露出必然报错的入口；
 - 测试：`test-handoff.mjs` 覆盖一次性/cwd/过期，`test-host.mjs` 覆盖 resume 不消费、subagent 不抢、startup 绑定 + 策略继承 + 不复用。
 
 ## 尚未实现
