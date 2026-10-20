@@ -1,6 +1,6 @@
 # 接力 v2：自动续会话的设计草案
 
-> 状态：**已实现第一段**（beta.3）：settle 时武装 `next` 意图，`agent/created` 自动继承绑定与审批策略，面板「续会话」按钮一步新建会话。**未实现**：自动切换（不经点击）、旧会话自动归档、模型继承。本文件保留 API 事实与剩余工作。
+> 状态：**1.1.0 已实现**：settle 时武装 `next` 意图，`agent/created` 自动继承绑定、审批策略与模型，面板「续会话」按钮一步新建会话。**未实现**（留到下一个版本）：自动切换（不经点击）、旧会话自动归档。本文件保留 API 事实与剩余工作。
 
 ## 目标
 
@@ -60,25 +60,25 @@
 
 是否**全自动**（settle 即换）需要单独开关 `autoSwitch`，默认关闭：模型正在写的回合里切走会话体验很糟。
 
-## 已实现（beta.3）
+## 已实现（1.1.0）
 
 - `handoff.armNext / takeNext / nextOf` + `DEFAULT_NEXT_TTL_MS = 30 分钟`；
-- `writeCheckpoint` 在 settle 时顺手 arm（带 `cwd`、`approval`）；
-- 主机监听 `agent/created`：只认 `startup`/`clear`，跳过 `origin === 'subagent'` 和已绑定的会话，按 cwd 匹配、一次性消费，然后 `setBinding` + `approval.setPolicy`；
+- `writeCheckpoint` 在 settle 时顺手 arm（带 `cwd`、`approval`、`model`）；
+- 主机监听 `agent/created`：只认 `startup`/`clear`，跳过 `origin === 'subagent'` 和已绑定的会话，按 cwd 匹配、一次性消费，然后 `setBinding` + `approval.setPolicy` + `sessionController.selectModel`（失败时 500ms 后重试一次）；
+- 模型的来源：源会话最近的 `request/header`（`session.requestHeader().config`），没有就回退 `agentDefaultModel.currentSelection()`；
 - 面板对 `settled` 行显示「续会话」主按钮：先调 `handoff.arm` 刷新意图，再 `uiWorkspace.startSession()`；`armed` 的会话显示「待续」标签；
 - `handoff.status` 返回 `capabilities.arm`，旧主机（没重启）下按钮自动隐藏，不会露出必然报错的入口；
-- 测试：`test-handoff.mjs` 覆盖一次性/cwd/过期，`test-host.mjs` 覆盖 resume 不消费、subagent 不抢、startup 绑定 + 策略继承 + 不复用。
+- 测试：`test-handoff.mjs` 覆盖一次性/cwd/过期/模型透传，`test-host.mjs` 覆盖 resume 不消费、subagent 不抢、startup 绑定 + 策略 + 模型继承 + 不复用。
 
-## 尚未实现
+## 尚未实现（下个版本）
 
 - **自动切换**：仍要用户点「续会话」（或自己新建会话），插件不会在回合中途替用户切走；
-- **旧会话归档**：面板没有做 archive，旧会话留在列表里；
-- **模型继承**：没有公开的会话级模型入口，新会话走全局默认。
+- **旧会话归档**：面板没有做 archive，旧会话留在列表里。
 
 ### 4. 未决问题
 
 - `startSession` 不返回 id，客户端无法立刻 `binding.set`。目前靠主机 `agent/created` 兜底；若同时开两个新会话会绑错，`next` 只消费一次 + cwd 匹配可以缓解。
-- 会话级模型选择没有公开客户端服务；若只能继承全局默认，v2 文档要明确写"模型按全局默认"。
+- 模型选择走 `sessionController.selectModel`，它会同时把该选择存成全局默认；这是 DSH 现有行为，不是本插件额外改动。
 - 旧会话归档会让正在读它的人失去视图；自动模式需要先提示。
 - 新会话第一条消息要不要自动带入记忆？建议不带：记忆已由系统提示注入，重复会浪费上下文。
 

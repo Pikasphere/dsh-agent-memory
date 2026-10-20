@@ -219,7 +219,13 @@ console.log('tools ok')
 ctx.get = name => {
   if (name === 'agents') return { list: () => [{ id: 'session-test-1234' }] }
   if (name === 'sessions') {
-    return { get: sessionId => ({ id: sessionId, header: String(sessionId).includes('sub') ? { origin: 'subagent' } : {} }) }
+    return {
+      get: sessionId => ({
+        id: sessionId,
+        header: String(sessionId).includes('sub') ? { origin: 'subagent' } : {},
+        requestHeader: () => ({ config: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' } }),
+      }),
+    }
   }
   if (name === 'tokenMeter') return { measure: () => ({ totalTokens: 310000 }) }
   if (name === 'workingDirectory') return { get: () => 'E:\\work' }
@@ -229,9 +235,18 @@ ctx.get = name => {
       setPolicy: (agent, policy) => approvalCalls.push([agent.id, policy]),
     }
   }
+  if (name === 'sessionController') {
+    return {
+      selectModel: request => {
+        modelCalls.push(request)
+        return Promise.resolve({ selected: { provider: request.provider, model: request.model } })
+      },
+    }
+  }
   return undefined
 }
 const approvalCalls = []
+const modelCalls = []
 const preStep = registered.handlers.find(item => item.event === 'agent/pre-step').handler
 await call('POST', '/op', { op: 'binding.set', args: { sessionId: 'session-test-1234', agentId: id } })
 await preStep({ agent: { id: 'session-test-1234' } }, async () => {})
@@ -259,27 +274,34 @@ assert.equal(armed.status, 200)
 assert.equal(armed.payload.value.next.agentId, id)
 assert.equal(armed.payload.value.next.cwd, 'E:\\work')
 assert.equal(armed.payload.value.next.approval, 'never')
+assert.deepEqual(armed.payload.value.next.model, { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' })
 
 // resume is not a new session: the intent survives
 await nextSession({ agent: { id: 'session-next-1' }, source: 'resume' })
 assert.equal((await bindings()).some(item => item.sessionId === 'session-next-1'), false)
 assert.ok((await call('POST', '/op', { op: 'handoff.status', args: {} })).payload.value.sessions[0].armed)
+assert.equal(modelCalls.length, 0)
 
 // subagents never capture it
 await nextSession({ agent: { id: 'session-sub-1' }, source: 'startup' })
 assert.equal((await bindings()).some(item => item.sessionId === 'session-sub-1'), false)
+assert.equal(modelCalls.length, 0)
 
 // a real fresh session consumes it once, binding the same agent and policy
 await nextSession({ agent: { id: 'session-next-2' }, source: 'startup' })
 const bound = (await bindings()).find(item => item.sessionId === 'session-next-2')
 assert.equal(bound?.agentId, id)
 assert.deepEqual(approvalCalls, [['session-next-2', 'never']])
+assert.deepEqual(modelCalls, [
+  { sessionId: 'session-next-2', provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+])
 assert.equal((await call('POST', '/op', { op: 'handoff.status', args: {} })).payload.value.sessions[0].armed, false)
 
 // the next session after that does not inherit anything
 await nextSession({ agent: { id: 'session-next-3' }, source: 'startup' })
 assert.equal((await bindings()).some(item => item.sessionId === 'session-next-3'), false)
 assert.deepEqual(approvalCalls, [['session-next-2', 'never']])
+assert.equal(modelCalls.length, 1)
 console.log('handoff next-session inheritance ok')
 
 // ── errors ──────────────────────────────────────────────────────────────────

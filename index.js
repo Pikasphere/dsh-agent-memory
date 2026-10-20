@@ -482,6 +482,38 @@ function approvalOf(ctx, sessionId) {
   }
 }
 
+/** The model a Session actually runs on: its last request header, else the default. */
+function modelOf(ctx, sessionId) {
+  try {
+    const session = sessionOf(ctx, sessionId)
+    const header = session !== undefined && typeof session.requestHeader === 'function' ? session.requestHeader() : undefined
+    const config = header?.config ?? (typeof session?.requestContext === 'function' ? session.requestContext() : undefined)
+    if (config !== undefined && config !== null && typeof config.provider === 'string' && typeof config.model === 'string') {
+      return {
+        provider: config.provider,
+        model: config.model,
+        ...(typeof config.reasoningEffort === 'string' && config.reasoningEffort !== ''
+          ? { reasoningEffort: config.reasoningEffort }
+          : {}),
+      }
+    }
+    const defaults = ctx.get('agentDefaultModel')
+    const selection = defaults !== undefined && typeof defaults.currentSelection === 'function' ? defaults.currentSelection() : undefined
+    if (selection !== undefined && selection !== null && typeof selection.provider === 'string' && typeof selection.model === 'string') {
+      return {
+        provider: selection.provider,
+        model: selection.model,
+        ...(typeof selection.reasoningEffort === 'string' && selection.reasoningEffort !== ''
+          ? { reasoningEffort: selection.reasoningEffort }
+          : {}),
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return undefined
+}
+
 function writeCheckpoint(ctx, store, journals, handoff, input) {
   try {
     const state = store.state()
@@ -511,6 +543,7 @@ function writeCheckpoint(ctx, store, journals, handoff, input) {
       agentId: input.agentId,
       cwd: sessionCwd(ctx, input.sessionId),
       approval: approvalOf(ctx, input.sessionId),
+      model: modelOf(ctx, input.sessionId),
     })
   } catch (error) {
     recordError(store, 'handoff/checkpoint', error)
@@ -618,6 +651,20 @@ function registerHandoff(ctx, store, journals, handoff, hints) {
           if (taken.approval !== undefined) {
             const approval = ctx.get('approval')
             if (approval !== undefined && typeof approval.setPolicy === 'function') approval.setPolicy(agent, taken.approval)
+          }
+          if (taken.model !== undefined && taken.model !== null) {
+            const controller = ctx.get('sessionController')
+            if (controller !== undefined && typeof controller.selectModel === 'function') {
+              const applyModel = () => controller.selectModel({ sessionId, ...taken.model })
+              try {
+                await applyModel()
+              } catch (error) {
+                // Creation can still be settling; one deferred retry usually lands.
+                setTimeout(() => {
+                  applyModel().catch(retryError => recordError(store, 'handoff/select-model', retryError))
+                }, 500)
+              }
+            }
           }
         } catch (error) {
           recordError(store, 'handoff/next-session', error)
@@ -789,6 +836,7 @@ function handleOp(ctx, store, rooms, journals, handoff, op, args) {
         agentId,
         cwd: sessionCwd(ctx, sessionId),
         approval: approvalOf(ctx, sessionId),
+        model: modelOf(ctx, sessionId),
       })
       return { sessionId, agentId, next }
     }
