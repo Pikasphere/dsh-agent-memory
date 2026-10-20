@@ -14,7 +14,7 @@ const load = name => import(`file://${path.join(here, name).replace(/\\/g, '/')}
 const { apply } = await load('index.js')
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-memory-host-'))
-const registered = { tools: [], sections: [], contexts: [], routes: [], effects: [] }
+const registered = { tools: [], sections: [], contexts: [], routes: [], effects: [], handlers: [] }
 
 function scope(deps) {
   return {
@@ -61,7 +61,8 @@ const ctx = {
   get() {
     return undefined
   },
-  on() {
+  on(event, handler) {
+    registered.handlers.push({ event, handler })
     return () => {}
   },
 }
@@ -212,6 +213,32 @@ const full = await readTool.execute({ entry: kbResult.entry }, exec)
 assert.equal(full.ok, true)
 assert.ok(full.content.includes('链接'))
 console.log('tools ok')
+
+// ── handoff status/reset over HTTP ──────────────────────────────────────────
+// Services are pended on at call time, so the mocks can land after apply.
+ctx.get = name => {
+  if (name === 'agents') return { list: () => [{ id: 'session-test-1234' }] }
+  if (name === 'sessions') return { get: sessionId => ({ id: sessionId }) }
+  if (name === 'tokenMeter') return { measure: () => ({ totalTokens: 310000 }) }
+  return undefined
+}
+const preStep = registered.handlers.find(item => item.event === 'agent/pre-step').handler
+await call('POST', '/op', { op: 'binding.set', args: { sessionId: 'session-test-1234', agentId: id } })
+await preStep({ agent: { id: 'session-test-1234' } }, async () => {})
+const status = await call('POST', '/op', { op: 'handoff.status', args: {} })
+assert.equal(status.status, 200)
+assert.equal(status.payload.value.config.triggerTokens, 300000)
+assert.equal(status.payload.value.sessions.length, 1)
+assert.equal(status.payload.value.sessions[0].agentId, id)
+assert.equal(status.payload.value.sessions[0].stage, 'requested')
+assert.ok(status.payload.value.sessions[0].requestedAt)
+assert.equal(status.payload.value.sessions[0].checkpoint, undefined)
+const reset = await call('POST', '/op', { op: 'handoff.reset', args: { sessionId: 'session-test-1234' } })
+assert.equal(reset.status, 200)
+const afterReset = await call('POST', '/op', { op: 'handoff.status', args: {} })
+assert.equal(afterReset.payload.value.sessions[0].stage, 'due')
+assert.equal(afterReset.payload.value.sessions[0].requestedAt, undefined)
+console.log('handoff status/reset ok')
 
 // ── errors ──────────────────────────────────────────────────────────────────
 const bad = await call('POST', '/op', { op: 'nope' })

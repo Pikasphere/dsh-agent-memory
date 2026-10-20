@@ -129,6 +129,11 @@ window.__ModuleLoader__.load({
         'stage.due': '已到阈值',
         'stage.requested': '等待沉淀',
         'stage.settled': '已生成检查点',
+        handoffSave: '保存设置',
+        handoffReset: '重置',
+        handoffResetConfirm: '重置这个会话的接力状态？它会重新从“观察中”开始；已生成的检查点日志不会删除。',
+        handoffCheckpoint: '检查点',
+        handoffExported: '已导出',
       },
       en: {
         nav: 'Agents',
@@ -238,6 +243,11 @@ window.__ModuleLoader__.load({
         'stage.due': 'at threshold',
         'stage.requested': 'awaiting checkpoint',
         'stage.settled': 'checkpoint written',
+        handoffSave: 'Save settings',
+        handoffReset: 'Reset',
+        handoffResetConfirm: 'Reset this session’s handoff state? It restarts from "watching"; checkpoints already written to the journal are kept.',
+        handoffCheckpoint: 'checkpoint',
+        handoffExported: 'exported',
       },
     }
 
@@ -686,6 +696,12 @@ window.__ModuleLoader__.load({
 
       const saveHandoff = async patch => {
         const value = await call('handoff.save', patch)
+        if (value) setHandoffVersion(item => item + 1)
+      }
+
+      const resetHandoff = async sessionId => {
+        if (!window.confirm(t('handoffResetConfirm'))) return
+        const value = await call('handoff.reset', { sessionId })
         if (value) setHandoffVersion(item => item + 1)
       }
 
@@ -1193,7 +1209,7 @@ window.__ModuleLoader__.load({
                     exportDir: handoffDraft.exportDir,
                   }),
                 },
-                t('save'),
+                t('handoffSave'),
               ),
             ),
           ),
@@ -1212,6 +1228,25 @@ window.__ModuleLoader__.load({
                       { className: 'am-row' },
                       h('span', { className: 'am-usage-title' }, session.title || t('untitled')),
                       h('span', { className: 'am-tag' }, t(`stage.${session.stage}`)),
+                      session.checkpoint
+                        ? h(
+                            'span',
+                            { className: 'am-tag am-mono', title: session.exported ? `${t('handoffExported')}: ${session.exported}` : '' },
+                            `${t('handoffCheckpoint')} ${session.checkpoint}`,
+                          )
+                        : null,
+                      h('span', { style: { flex: 1 } }),
+                      session.stage === 'requested' || session.stage === 'settled'
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm am-btn-ghost',
+                              disabled: busy !== '',
+                              onClick: () => void resetHandoff(session.sessionId),
+                            },
+                            t('handoffReset'),
+                          )
+                        : null,
                     ),
                     h(
                       'div',

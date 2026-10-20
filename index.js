@@ -493,7 +493,17 @@ function handoffStatus(ctx, store, handoff) {
         : tokens >= config.triggerTokens
           ? 'due'
           : 'watching'
-    return { sessionId, title: sessionTitleOf(ctx, sessionId), tokens, agentId: bound, stage }
+    return {
+      sessionId,
+      title: sessionTitleOf(ctx, sessionId),
+      tokens,
+      agentId: bound,
+      stage,
+      requestedAt: state?.requestedAt,
+      settledAt: state?.settledAt,
+      checkpoint: state?.checkpoint,
+      exported: state?.exported,
+    }
   })
   return { config, sessions }
 }
