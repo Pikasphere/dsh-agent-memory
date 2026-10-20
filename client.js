@@ -2051,7 +2051,13 @@ window.__ModuleLoader__.load({
               const action = target.getAttribute('data-action')
               if (action === 'panel') {
                 const layout = ctx.get('layout')
-                if (layout !== undefined && typeof layout.selectPanel === 'function') layout.selectPanel('agent-memory')
+                if (layout !== undefined && typeof layout.selectPanel === 'function') {
+                  try {
+                    layout.selectPanel('agent-memory')
+                  } catch {
+                    /* panel id moved in a newer shell */
+                  }
+                }
               } else if (action === 'toggle-section') {
                 sectionOpen = !sectionOpen
                 renderSection(host)
