@@ -449,7 +449,40 @@ function handoffHint(tokens, threshold) {
   ].join('\n')
 }
 
-function writeCheckpoint(store, journals, handoff, input) {
+function sessionOf(ctx, sessionId) {
+  try {
+    const sessions = ctx.get('sessions')
+    return sessions !== undefined && typeof sessions.get === 'function' ? sessions.get(String(sessionId)) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function sessionCwd(ctx, sessionId) {
+  try {
+    const session = sessionOf(ctx, sessionId)
+    const workingDirectory = ctx.get('workingDirectory')
+    if (session === undefined || workingDirectory === undefined) return undefined
+    const cwd = typeof workingDirectory.get === 'function' ? workingDirectory.get(session) : undefined
+    return typeof cwd === 'string' && cwd !== '' ? cwd : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function approvalOf(ctx, sessionId) {
+  try {
+    const session = sessionOf(ctx, sessionId)
+    const approval = ctx.get('approval')
+    if (session === undefined || approval === undefined || typeof approval.overrideOf !== 'function') return undefined
+    const policy = approval.overrideOf(session)
+    return policy === 'ask' || policy === 'never' ? policy : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeCheckpoint(ctx, store, journals, handoff, input) {
   try {
     const state = store.state()
     const vault = state.vaults.find(item => item.id === input.agentId)
@@ -472,6 +505,13 @@ function writeCheckpoint(store, journals, handoff, input) {
     })
     const exported = handoff.exportCheckpoint({ text, sessionId: input.sessionId })
     handoff.patchState(input.sessionId, { settledAt: new Date().toISOString(), checkpoint: written.id, exported })
+    // A fresh session in the same directory picks this agent up automatically
+    // (see the agent/created listener) until the intent expires.
+    handoff.armNext(input.sessionId, {
+      agentId: input.agentId,
+      cwd: sessionCwd(ctx, input.sessionId),
+      approval: approvalOf(ctx, input.sessionId),
+    })
   } catch (error) {
     recordError(store, 'handoff/checkpoint', error)
   }
@@ -503,6 +543,8 @@ function handoffStatus(ctx, store, handoff) {
       settledAt: state?.settledAt,
       checkpoint: state?.checkpoint,
       exported: state?.exported,
+      armed: Boolean(state?.next),
+      armedAt: state?.next?.at,
     }
   })
   return { config, sessions }
@@ -538,7 +580,7 @@ function registerHandoff(ctx, store, journals, handoff, hints) {
           if (result.stage === 'requested') hints.set(sessionId, handoffHint(tokens, result.threshold))
           else hints.delete(sessionId)
           if (result.stage === 'ready') {
-            writeCheckpoint(store, journals, handoff, {
+            writeCheckpoint(ctx, store, journals, handoff, {
               sessionId,
               agentId,
               tokens,
@@ -551,6 +593,37 @@ function registerHandoff(ctx, store, journals, handoff, hints) {
         return await next()
       }),
     'agent-memory: handoff step',
+  )
+
+  // The next fresh session in the same directory inherits the checkpoint's
+  // agent (and its approval policy). `startup`/`clear` are the only sources
+  // that mean "a new session"; resume must not consume the intent.
+  ctx.effect(
+    () =>
+      ctx.on('agent/created', async payload => {
+        try {
+          const source = String(payload?.source ?? '')
+          if (source !== 'startup' && source !== 'clear') return
+          const agent = payload?.agent
+          if (agent === undefined || agent === null) return
+          const sessionId = String(agent.id ?? '')
+          if (sessionId === '') return
+          const session = sessionOf(ctx, sessionId)
+          if (session?.header?.origin === 'subagent') return
+          const bound = store.bindingOf(sessionId)
+          if (bound !== '') return
+          const taken = handoff.takeNext({ cwd: sessionCwd(ctx, sessionId), excludeSessionId: sessionId })
+          if (taken === null) return
+          store.setBinding({ sessionId, agentId: taken.agentId })
+          if (taken.approval !== undefined) {
+            const approval = ctx.get('approval')
+            if (approval !== undefined && typeof approval.setPolicy === 'function') approval.setPolicy(agent, taken.approval)
+          }
+        } catch (error) {
+          recordError(store, 'handoff/next-session', error)
+        }
+      }),
+    'agent-memory: handoff next session',
   )
 
   ctx.inject(['systemPrompt'], scoped => {
@@ -708,6 +781,17 @@ function handleOp(ctx, store, rooms, journals, handoff, op, args) {
     case 'handoff.reset':
       handoff.clearState(args.sessionId)
       return { reset: args.sessionId }
+    case 'handoff.arm': {
+      const sessionId = String(args.sessionId ?? '')
+      const agentId = store.bindingOf(sessionId)
+      if (agentId === '') throw new MemoryError('no-agent', 'bind an agent to this session first')
+      const next = handoff.armNext(sessionId, {
+        agentId,
+        cwd: sessionCwd(ctx, sessionId),
+        approval: approvalOf(ctx, sessionId),
+      })
+      return { sessionId, agentId, next }
+    }
     case 'settings.save':
       store.saveSettings({ knowledgeDir: args.knowledgeDir })
       return store.state()

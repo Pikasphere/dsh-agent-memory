@@ -218,10 +218,20 @@ console.log('tools ok')
 // Services are pended on at call time, so the mocks can land after apply.
 ctx.get = name => {
   if (name === 'agents') return { list: () => [{ id: 'session-test-1234' }] }
-  if (name === 'sessions') return { get: sessionId => ({ id: sessionId }) }
+  if (name === 'sessions') {
+    return { get: sessionId => ({ id: sessionId, header: String(sessionId).includes('sub') ? { origin: 'subagent' } : {} }) }
+  }
   if (name === 'tokenMeter') return { measure: () => ({ totalTokens: 310000 }) }
+  if (name === 'workingDirectory') return { get: () => 'E:\\work' }
+  if (name === 'approval') {
+    return {
+      overrideOf: () => 'never',
+      setPolicy: (agent, policy) => approvalCalls.push([agent.id, policy]),
+    }
+  }
   return undefined
 }
+const approvalCalls = []
 const preStep = registered.handlers.find(item => item.event === 'agent/pre-step').handler
 await call('POST', '/op', { op: 'binding.set', args: { sessionId: 'session-test-1234', agentId: id } })
 await preStep({ agent: { id: 'session-test-1234' } }, async () => {})
@@ -239,6 +249,37 @@ const afterReset = await call('POST', '/op', { op: 'handoff.status', args: {} })
 assert.equal(afterReset.payload.value.sessions[0].stage, 'due')
 assert.equal(afterReset.payload.value.sessions[0].requestedAt, undefined)
 console.log('handoff status/reset ok')
+
+// ── the next fresh session inherits agent + approval policy ────────────────
+const nextSession = registered.handlers.find(item => item.event === 'agent/created').handler
+const bindings = async () => (await call('POST', '/op', { op: 'binding.list', args: {} })).payload.value
+const armed = await call('POST', '/op', { op: 'handoff.arm', args: { sessionId: 'session-test-1234' } })
+assert.equal(armed.status, 200)
+assert.equal(armed.payload.value.next.agentId, id)
+assert.equal(armed.payload.value.next.cwd, 'E:\\work')
+assert.equal(armed.payload.value.next.approval, 'never')
+
+// resume is not a new session: the intent survives
+await nextSession({ agent: { id: 'session-next-1' }, source: 'resume' })
+assert.equal((await bindings()).some(item => item.sessionId === 'session-next-1'), false)
+assert.ok((await call('POST', '/op', { op: 'handoff.status', args: {} })).payload.value.sessions[0].armed)
+
+// subagents never capture it
+await nextSession({ agent: { id: 'session-sub-1' }, source: 'startup' })
+assert.equal((await bindings()).some(item => item.sessionId === 'session-sub-1'), false)
+
+// a real fresh session consumes it once, binding the same agent and policy
+await nextSession({ agent: { id: 'session-next-2' }, source: 'startup' })
+const bound = (await bindings()).find(item => item.sessionId === 'session-next-2')
+assert.equal(bound?.agentId, id)
+assert.deepEqual(approvalCalls, [['session-next-2', 'never']])
+assert.equal((await call('POST', '/op', { op: 'handoff.status', args: {} })).payload.value.sessions[0].armed, false)
+
+// the next session after that does not inherit anything
+await nextSession({ agent: { id: 'session-next-3' }, source: 'startup' })
+assert.equal((await bindings()).some(item => item.sessionId === 'session-next-3'), false)
+assert.deepEqual(approvalCalls, [['session-next-2', 'never']])
+console.log('handoff next-session inheritance ok')
 
 // ── errors ──────────────────────────────────────────────────────────────────
 const bad = await call('POST', '/op', { op: 'nope' })

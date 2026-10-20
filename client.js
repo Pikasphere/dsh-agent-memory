@@ -134,6 +134,11 @@ window.__ModuleLoader__.load({
         handoffResetConfirm: '重置这个会话的接力状态？它会重新从“观察中”开始；已生成的检查点日志不会删除。',
         handoffCheckpoint: '检查点',
         handoffExported: '已导出',
+        handoffContinue: '续会话',
+        handoffContinueHint: '新建一个会话：自动绑定这个智能体，并继承当前的审批策略。',
+        handoffNoWorkspace: '当前环境不支持从面板新建会话。',
+        handoffArmed: '待续',
+        handoffArmedHint: '30 分钟内在这个目录新建的会话会自动绑定该智能体，并继承审批策略。',
       },
       en: {
         nav: 'Agents',
@@ -248,6 +253,11 @@ window.__ModuleLoader__.load({
         handoffResetConfirm: 'Reset this session’s handoff state? It restarts from "watching"; checkpoints already written to the journal are kept.',
         handoffCheckpoint: 'checkpoint',
         handoffExported: 'exported',
+        handoffContinue: 'Continue in new session',
+        handoffContinueHint: 'Start a fresh session bound to this agent and carrying over its approval policy.',
+        handoffNoWorkspace: 'This environment cannot start a session from the panel.',
+        handoffArmed: 'ready to continue',
+        handoffArmedHint: 'A new session in this directory within 30 minutes will inherit this agent and its approval policy.',
       },
     }
 
@@ -703,6 +713,18 @@ window.__ModuleLoader__.load({
         if (!window.confirm(t('handoffResetConfirm'))) return
         const value = await call('handoff.reset', { sessionId })
         if (value) setHandoffVersion(item => item + 1)
+      }
+
+      const continueHandoff = async sessionId => {
+        const armed = await call('handoff.arm', { sessionId })
+        if (!armed) return
+        const ui = typeof props.uiWorkspace === 'function' ? props.uiWorkspace() : undefined
+        if (!ui || typeof ui.startSession !== 'function') {
+          setFailure(t('handoffNoWorkspace'))
+          return
+        }
+        ui.startSession()
+        setHandoffVersion(item => item + 1)
       }
 
       const journalOpen = async entryId => {
@@ -1228,6 +1250,9 @@ window.__ModuleLoader__.load({
                       { className: 'am-row' },
                       h('span', { className: 'am-usage-title' }, session.title || t('untitled')),
                       h('span', { className: 'am-tag' }, t(`stage.${session.stage}`)),
+                      session.armed
+                        ? h('span', { className: 'am-tag', title: t('handoffArmedHint') }, t('handoffArmed'))
+                        : null,
                       session.checkpoint
                         ? h(
                             'span',
@@ -1236,6 +1261,18 @@ window.__ModuleLoader__.load({
                           )
                         : null,
                       h('span', { style: { flex: 1 } }),
+                      session.stage === 'settled'
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm am-btn-primary',
+                              title: t('handoffContinueHint'),
+                              disabled: busy !== '',
+                              onClick: () => void continueHandoff(session.sessionId),
+                            },
+                            t('handoffContinue'),
+                          )
+                        : null,
                       session.stage === 'requested' || session.stage === 'settled'
                         ? h(
                             'button',
@@ -1708,7 +1745,7 @@ window.__ModuleLoader__.load({
 
       ctx.slots.inject('main', () =>
         ctx.slots.register({ name: 'main', key: 'agent-memory' }, props =>
-          h(Panel, { ...props, t, getLocale: locale }),
+          h(Panel, { ...props, t, getLocale: locale, uiWorkspace: () => ctx.get('uiWorkspace') }),
         ),
       )
     }

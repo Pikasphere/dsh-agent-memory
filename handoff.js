@@ -19,6 +19,8 @@ import { MemoryError } from './store.js'
 
 export const DEFAULT_TRIGGER_TOKENS = 300000
 export const DEFAULT_REMIND_EVERY = 2
+/** How long a "next session inherits this agent" intent stays valid. */
+export const DEFAULT_NEXT_TTL_MS = 30 * 60 * 1000
 const MIN_TOKENS = 20000
 const MAX_TOKENS = 2000000
 
@@ -110,6 +112,53 @@ export function createHandoff(options = {}) {
   }
 
   /**
+   * Record the intent "the next fresh session inherits this agent". The intent
+   * is consumed once by `takeNext`, carries the source directory when known so
+   * an unrelated workspace is not captured, and expires on its own.
+   */
+  function armNext(sessionId, intent = {}) {
+    const key = String(sessionId ?? '')
+    if (key === '') return null
+    const next = { ...intent, at: now().toISOString() }
+    patchState(key, { next })
+    return next
+  }
+
+  /** Consume the first live intent that matches `cwd` (or has no cwd). */
+  function takeNext(options = {}) {
+    const ttl = Number.isFinite(Number(options.maxAgeMs)) ? Number(options.maxAgeMs) : DEFAULT_NEXT_TTL_MS
+    const cutoff = now().getTime() - ttl
+    const cwd = typeof options.cwd === 'string' && options.cwd !== '' ? options.cwd : undefined
+    const skip = String(options.excludeSessionId ?? '')
+    const sessions = allStates()
+    let found = null
+    let dirty = false
+    for (const [sessionId, state] of Object.entries(sessions)) {
+      const next = state?.next
+      if (!next || sessionId === skip) continue
+      const at = Date.parse(next.at)
+      if (!Number.isFinite(at) || at < cutoff) {
+        delete state.next
+        dirty = true
+        continue
+      }
+      if (cwd !== undefined && next.cwd !== undefined && next.cwd !== cwd) continue
+      if (found === null) found = { sessionId, next }
+    }
+    if (found === null) {
+      if (dirty) saveStates(sessions)
+      return null
+    }
+    delete sessions[found.sessionId].next
+    saveStates(sessions)
+    return { sessionId: found.sessionId, ...found.next }
+  }
+
+  function nextOf(sessionId) {
+    return stateOf(sessionId)?.next ?? null
+  }
+
+  /**
    * Decide this step's stage from pressure plus what the agent has recorded
    * since the request. `requested` means "remind the model"; `ready` means both
    * a memory and a journal entry landed after the request.
@@ -192,5 +241,19 @@ export function createHandoff(options = {}) {
     }
   }
 
-  return { root, files, config, saveConfig, stateOf, patchState, clearState, evaluate, buildCheckpointText, exportCheckpoint }
+  return {
+    root,
+    files,
+    config,
+    saveConfig,
+    stateOf,
+    patchState,
+    clearState,
+    armNext,
+    takeNext,
+    nextOf,
+    evaluate,
+    buildCheckpointText,
+    exportCheckpoint,
+  }
 }

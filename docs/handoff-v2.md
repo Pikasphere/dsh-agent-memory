@@ -1,6 +1,6 @@
 # 接力 v2：自动续会话的设计草案
 
-> 状态：草案，未实现。v1（beta.2）只做沉淀与检查点；本文件记录 v2 需要的 API 事实与落地路径。
+> 状态：**已实现第一段**（beta.3）：settle 时武装 `next` 意图，`agent/created` 自动继承绑定与审批策略，面板「续会话」按钮一步新建会话。**未实现**：自动切换（不经点击）、旧会话自动归档、模型继承。本文件保留 API 事实与剩余工作。
 
 ## 目标
 
@@ -59,6 +59,20 @@
 - 旧会话：等这一步的回合结束后 `archiveSession(旧 id)`；不要在回合中途归档当前会话。
 
 是否**全自动**（settle 即换）需要单独开关 `autoSwitch`，默认关闭：模型正在写的回合里切走会话体验很糟。
+
+## 已实现（beta.3）
+
+- `handoff.armNext / takeNext / nextOf` + `DEFAULT_NEXT_TTL_MS = 30 分钟`；
+- `writeCheckpoint` 在 settle 时顺手 arm（带 `cwd`、`approval`）；
+- 主机监听 `agent/created`：只认 `startup`/`clear`，跳过 `origin === 'subagent'` 和已绑定的会话，按 cwd 匹配、一次性消费，然后 `setBinding` + `approval.setPolicy`；
+- 面板对 `settled` 行显示「续会话」主按钮：先调 `handoff.arm` 刷新意图，再 `uiWorkspace.startSession()`；`armed` 的会话显示「待续」标签；
+- 测试：`test-handoff.mjs` 覆盖一次性/cwd/过期，`test-host.mjs` 覆盖 resume 不消费、subagent 不抢、startup 绑定 + 策略继承 + 不复用。
+
+## 尚未实现
+
+- **自动切换**：仍要用户点「续会话」（或自己新建会话），插件不会在回合中途替用户切走；
+- **旧会话归档**：面板没有做 archive，旧会话留在列表里；
+- **模型继承**：没有公开的会话级模型入口，新会话走全局默认。
 
 ### 4. 未决问题
 

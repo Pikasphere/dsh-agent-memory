@@ -74,6 +74,28 @@ handoff.saveConfig({ enabled: true, triggerTokens: 50000 })
 assert.equal(handoff.config().triggerTokens, 50000)
 assert.equal(handoff.evaluate({ sessionId: 's5', tokens: 60000 }).stage, 'requested')
 
+// arming the next session: one-shot, cwd-scoped, expiring
+handoff.armNext('s1', { agentId: 'alpha', cwd: 'E:\\work', approval: 'never' })
+assert.equal(handoff.nextOf('s1').agentId, 'alpha')
+assert.equal(handoff.takeNext({ cwd: 'E:\\other' }), null)
+assert.ok(handoff.nextOf('s1'))
+const taken = handoff.takeNext({ cwd: 'E:\\work' })
+assert.equal(taken.sessionId, 's1')
+assert.equal(taken.agentId, 'alpha')
+assert.equal(taken.approval, 'never')
+assert.equal(handoff.takeNext({ cwd: 'E:\\work' }), null)
+assert.equal(handoff.nextOf('s1'), null)
+
+// an intent without a cwd matches any directory
+handoff.armNext('s2', { agentId: 'beta' })
+assert.equal(handoff.takeNext({ cwd: 'E:\\work' }).sessionId, 's2')
+
+// and it expires instead of capturing a much later session
+handoff.armNext('s2', { agentId: 'beta' })
+clock += 31 * 60 * 1000
+assert.equal(handoff.takeNext({ cwd: 'E:\\work' }), null)
+assert.equal(handoff.nextOf('s2'), null)
+
 // checkpoint text carries memory and the journal index
 const text = handoff.buildCheckpointText({
   agentId: 'alpha',
