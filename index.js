@@ -21,6 +21,9 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { createStore, defaultRoot, MemoryError } from './store.js'
+import { createJournals } from './journal.js'
+import { createRooms } from './rooms.js'
+import { createHandoff } from './handoff.js'
 
 const API_BASE = '/api/agent-memory'
 const MAX_BODY_BYTES = 1024 * 1024
@@ -36,10 +39,16 @@ export function apply(ctx, config = {}) {
     resolveTitle: sessionId => sessionTitleOf(ctx, sessionId),
   })
 
+  const rooms = createRooms({ rootDir: store.root })
+  const journals = createJournals({ rootDir: store.root })
+  const handoff = createHandoff({ rootDir: store.root })
+  const hints = new Map()
+
   try {
     registerPrompt(ctx, store)
-    registerTools(ctx, store)
-    registerApi(ctx, store)
+    registerTools(ctx, store, rooms, journals)
+    registerHandoff(ctx, store, journals, handoff, hints)
+    registerApi(ctx, store, rooms, journals, handoff, hints)
   } catch (error) {
     recordError(store, 'apply', error)
   }
@@ -47,6 +56,11 @@ export function apply(ctx, config = {}) {
 
 /** Never let diagnostics replace the failure they describe. */
 function recordError(store, kind, error) {
+  try {
+    console.error(`[agent-memory] ${kind}: ${String(error?.stack ?? error?.message ?? error)}`)
+  } catch {
+    /* no console in some hosts */
+  }
   try {
     const text = `${new Date().toISOString()} [${kind}] ${String(error?.stack ?? error?.message ?? error)}\n`
     fs.appendFileSync(path.join(store.root, 'plugin-error.log'), text, 'utf8')
@@ -95,6 +109,7 @@ function buildPrompt(store, sessionId) {
     `- Your short memory: call \`agent_memory_save\` when a task is finished or before you hand work to another agent. It overwrites the current memory, which is capped at ${store.memoryLimit} characters. Keep only what the next run cannot re-derive: the goal, the decisions taken, the state left behind, and the next step. Do not paste logs or code.`,
     '- The knowledge base is one library **shared by every agent**: what one agent records is visible to all the others, and each entry names the agent that contributed it. It holds detailed experience (paths, commands, pitfalls, why a decision was made). Consult it on your own initiative: `agent_knowledge_search` to find entries, `agent_knowledge_read` to read one in full, `agent_knowledge_write` to record new experience or to refine an existing entry (pass its `entry` id so it updates rather than duplicates).',
     `- Knowledge directory: ${store.knowledgeRoot()}`,
+    '- Two more surfaces exist: `agent_room` for discussion rooms (a shared transcript several agents post into, each message attributed to its agent) and `agent_journal` for your private journal (detailed, diary-like, readable and writable by this agent only). Use the room when the user asks you to discuss something with other agents, and keep the journal for detail the short memory cannot hold.',
     '- You cannot read the memory yourself. The user decides when a memory is loaded into a session; when one is loaded it appears below as `<agent_memory>`.',
   ]
   let active
@@ -182,7 +197,7 @@ function vaultOf(store, args, exec) {
   return store.resolveVault({ id: args?.id ?? args?.vault, sessionId: exec?.agent?.id })
 }
 
-function registerTools(ctx, store) {
+function registerTools(ctx, store, rooms, journals) {
   ctx.inject(['tools'], scoped => {
     const register = (definition, label) => scoped.effect(() => scoped.tools.register(definition), label)
     const limit = store.memoryLimit
@@ -309,6 +324,236 @@ function registerTools(ctx, store) {
       },
       'agent-memory: knowledge write tool',
     )
+
+    registerRoomTools(register, store, rooms)
+    registerJournalTools(register, store, journals)
+  })
+}
+
+// ── discussion rooms + private journal ──────────────────────────────────────
+
+function registerRoomTools(register, store, rooms) {
+  const speakerOf = exec => {
+    const bound = exec?.agent?.id ? store.bindingOf(exec.agent.id) : ''
+    if (bound === '') return undefined
+    const name = store.state().vaults.find(item => item.id === bound)?.name ?? bound
+    return { kind: 'agent', id: bound, name }
+  }
+  const requireSpeaker = exec => {
+    const speaker = speakerOf(exec)
+    if (speaker === undefined) {
+      throw new MemoryError('no-agent', 'this conversation has no agent bound; bind one in the New Session row first')
+    }
+    return speaker
+  }
+
+  register(
+    {
+      name: 'agent_room',
+      description:
+        'A discussion room is a shared transcript that several agents join. action="list" shows the rooms you can see, ' +
+        '"read" returns the recent transcript, "say" posts your message, and "join"/"leave" change your own membership. ' +
+        'Anything you say is attributed to the agent bound to this conversation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'read', 'say', 'join', 'leave'], description: 'What to do.' },
+          room: { type: 'string', description: 'Room id, from action="list".' },
+          text: { type: 'string', description: 'Message body, for action="say".' },
+          limit: { type: 'number', description: 'How many recent messages action="read" returns (1-200, default 30).' },
+        },
+        required: ['action'],
+      },
+      output: textOutput({ type: 'object', properties: { rooms: { type: 'array', items: { type: 'object' } } } }),
+      execute: guard(async (args, exec) => {
+        const action = String(args?.action ?? 'list')
+        if (action === 'list') return { ok: true, rooms: rooms.list() }
+        const id = args?.room
+        if (action === 'read') return { ok: true, ...rooms.read({ id, limit: args?.limit }) }
+        if (action === 'say') return { ok: true, message: rooms.say({ id, text: args?.text, from: requireSpeaker(exec) }) }
+        if (action === 'join') return { ok: true, room: rooms.join({ id, member: requireSpeaker(exec).id }) }
+        if (action === 'leave') return { ok: true, room: rooms.leave({ id, member: requireSpeaker(exec).id }) }
+        throw new MemoryError('bad-action', `unknown action: ${action}`)
+      }),
+    },
+    'agent-memory: room tool',
+  )
+}
+
+function registerJournalTools(register, store, journals) {
+  const requireAgent = exec => {
+    const bound = exec?.agent?.id ? store.bindingOf(exec.agent.id) : ''
+    if (bound === '') {
+      throw new MemoryError('no-agent', 'this conversation has no agent bound; bind one in the New Session row first')
+    }
+    return bound
+  }
+
+  register(
+    {
+      name: 'agent_journal',
+      description:
+        'Your private journal: the detailed, diary-like record of this one agent. No other agent can read or extend it, and nothing is injected ' +
+        'automatically — you decide when to consult it. action="list" shows recent entries, "search" filters them, "read" returns one entry, ' +
+        '"write" appends a new one. Use it for detail a short memory cannot hold.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'search', 'read', 'write'], description: 'What to do.' },
+          entry: { type: 'string', description: 'Entry id, for action="read".' },
+          query: { type: 'string', description: 'Keywords, for action="search".' },
+          title: { type: 'string', description: 'Short title, for action="write".' },
+          text: { type: 'string', description: 'Entry body, for action="write".' },
+          limit: { type: 'number', description: 'How many entries list/search return (1-100, default 20).' },
+        },
+        required: ['action'],
+      },
+      output: textOutput({ type: 'object', properties: { entries: { type: 'array', items: { type: 'object' } } } }),
+      execute: guard(async (args, exec) => {
+        const id = requireAgent(exec)
+        const action = String(args?.action ?? 'list')
+        if (action === 'list') return { ok: true, ...journals.list({ id, limit: args?.limit }) }
+        if (action === 'search') return { ok: true, ...journals.list({ id, query: args?.query, limit: args?.limit }) }
+        if (action === 'read') return { ok: true, ...journals.read({ id, entry: args?.entry }) }
+        if (action === 'write') return { ok: true, ...journals.write({ id, title: args?.title, text: args?.text }) }
+        throw new MemoryError('bad-action', `unknown action: ${action}`)
+      }),
+    },
+    'agent-memory: journal tool',
+  )
+}
+
+// ── handoff: pressure → checkpoint ──────────────────────────────────────────
+
+function measureTokens(ctx, sessionId) {
+  try {
+    const sessions = ctx.get('sessions')
+    const meter = ctx.get('tokenMeter')
+    if (sessions === undefined || meter === undefined) return 0
+    const session = typeof sessions.get === 'function' ? sessions.get(sessionId) : undefined
+    if (session === undefined) return 0
+    const measurement = meter.measure(session)
+    return Number(measurement?.totalTokens) || 0
+  } catch {
+    return 0
+  }
+}
+
+function handoffHint(tokens, threshold) {
+  return [
+    `[交接提醒] 当前上下文约 ${tokens.toLocaleString('en-US')} tokens，已到阈值 ${threshold.toLocaleString('en-US')}。`,
+    '在这一步先完成两件事，然后继续手上的工作：',
+    '1) `agent_memory_save`：写一段不超过 400 字的记忆（下一步做什么、关键决策、遗留问题）',
+    '2) `agent_journal` 的 `write`：追加一条详细日志（这次做了什么、为什么、踩了什么坑）',
+    '两件都完成后会自动生成一份交棒检查点，本会话仍可继续使用。',
+  ].join('\n')
+}
+
+function writeCheckpoint(store, journals, handoff, input) {
+  try {
+    const state = store.state()
+    const vault = state.vaults.find(item => item.id === input.agentId)
+    const entries = journals.list({ id: input.agentId, limit: 5 }).entries
+    const text = handoff.buildCheckpointText({
+      agentId: input.agentId,
+      agentName: vault?.name ?? input.agentId,
+      sessionId: input.sessionId,
+      tokens: input.tokens,
+      threshold: input.threshold,
+      memory: vault?.memory ?? '',
+      entries,
+    })
+    const written = journals.write({
+      id: input.agentId,
+      kind: 'checkpoint',
+      title: `交棒检查点 · ${Math.round(input.tokens / 1000)}k tokens`,
+      text,
+      meta: { tokens: input.tokens, threshold: input.threshold, sessionId: input.sessionId, memoryChars: vault?.memoryChars ?? 0 },
+    })
+    const exported = handoff.exportCheckpoint({ text, sessionId: input.sessionId })
+    handoff.patchState(input.sessionId, { settledAt: new Date().toISOString(), checkpoint: written.id, exported })
+  } catch (error) {
+    recordError(store, 'handoff/checkpoint', error)
+  }
+}
+
+function handoffStatus(ctx, store, handoff) {
+  const config = handoff.config()
+  const agents = ctx.get('agents')
+  const list = agents !== undefined && typeof agents.list === 'function' ? agents.list() : []
+  const sessions = list.map(agent => {
+    const sessionId = String(agent.id)
+    const tokens = measureTokens(ctx, sessionId)
+    const state = handoff.stateOf(sessionId)
+    const bound = store.bindingOf(sessionId)
+    const stage = state?.settledAt
+      ? 'settled'
+      : state?.requestedAt
+        ? 'requested'
+        : tokens >= config.triggerTokens
+          ? 'due'
+          : 'watching'
+    return { sessionId, title: sessionTitleOf(ctx, sessionId), tokens, agentId: bound, stage }
+  })
+  return { config, sessions }
+}
+
+function registerHandoff(ctx, store, journals, handoff, hints) {
+  ctx.effect(
+    () =>
+      ctx.on('agent/pre-step', async (payload, next) => {
+        try {
+          const sessionId = String(payload?.agent?.id ?? '')
+          const config = handoff.config()
+          if (!config.enabled || sessionId === '') {
+            if (sessionId !== '') hints.delete(sessionId)
+            return await next()
+          }
+          const tokens = measureTokens(ctx, sessionId)
+          if (tokens < config.triggerTokens) {
+            hints.delete(sessionId)
+            return await next()
+          }
+          const agentId = store.bindingOf(sessionId)
+          if (agentId === '') {
+            hints.delete(sessionId)
+            return await next()
+          }
+          const result = handoff.evaluate({
+            sessionId,
+            tokens,
+            memoryAt: store.memoryUpdatedAt(agentId),
+            journalAt: journals.latestAt(agentId),
+          })
+          if (result.stage === 'requested') hints.set(sessionId, handoffHint(tokens, result.threshold))
+          else hints.delete(sessionId)
+          if (result.stage === 'ready') {
+            writeCheckpoint(store, journals, handoff, {
+              sessionId,
+              agentId,
+              tokens,
+              threshold: result.threshold,
+            })
+          }
+        } catch (error) {
+          recordError(store, 'handoff/pre-step', error)
+        }
+        return await next()
+      }),
+    'agent-memory: handoff step',
+  )
+
+  ctx.inject(['systemPrompt'], scoped => {
+    scoped.effect(
+      () =>
+        scoped.systemPrompt.context({
+          name: 'agent-handoff',
+          order: SECTION_ORDER + 1,
+          interpolate: false,
+          text: context => hints.get(sessionIdOf(context)) ?? '',
+        }),
+      'agent-memory: handoff hint',
+    )
   })
 }
 
@@ -381,7 +626,7 @@ function rejectionFor(ctx, req) {
   return structuralRejection(req)
 }
 
-function handleOp(store, op, args, ctx) {
+function handleOp(ctx, store, rooms, journals, handoff, op, args) {
   switch (op) {
     case 'state':
       return store.state()
@@ -417,6 +662,42 @@ function handleOp(store, op, args, ctx) {
       })
     case 'knowledge.delete':
       return store.deleteKnowledge({ entry: args.entry })
+    case 'room.list':
+      return { rooms: rooms.list() }
+    case 'room.create':
+      return rooms.create({ name: args.name })
+    case 'room.rename':
+      return rooms.rename({ id: args.id, name: args.name })
+    case 'room.delete':
+      return rooms.remove({ id: args.id })
+    case 'room.members':
+      return rooms.setMembers({ id: args.id, members: args.members })
+    case 'room.read':
+      return rooms.read({ id: args.id, limit: args.limit })
+    case 'room.say':
+      return rooms.say({ id: args.id, text: args.text, from: { kind: 'user', id: 'user', name: '我' } })
+    case 'room.clear':
+      return rooms.clear({ id: args.id })
+    case 'journal.list':
+      return journals.list({ id: args.id, query: args.query, limit: args.limit })
+    case 'journal.read':
+      return journals.read({ id: args.id, entry: args.entry })
+    case 'journal.write':
+      return journals.write({ id: args.id, title: args.title, text: args.text })
+    case 'journal.delete':
+      return journals.remove({ id: args.id, entry: args.entry })
+    case 'handoff.status':
+      return handoffStatus(ctx, store, handoff)
+    case 'handoff.save':
+      return handoff.saveConfig({
+        enabled: args.enabled,
+        triggerTokens: args.triggerTokens,
+        remindEverySteps: args.remindEverySteps,
+        exportDir: args.exportDir,
+      })
+    case 'handoff.reset':
+      handoff.clearState(args.sessionId)
+      return { reset: args.sessionId }
     case 'settings.save':
       store.saveSettings({ knowledgeDir: args.knowledgeDir })
       return store.state()
@@ -425,7 +706,7 @@ function handleOp(store, op, args, ctx) {
   }
 }
 
-function registerApi(ctx, store) {
+function registerApi(ctx, store, rooms, journals, handoff, hints) {
   // `webServer` is published after plugins load in the Web composition, so this
   // must pend on the service instead of reading it once at apply time.
   ctx.inject(['webServer'], scoped => {
@@ -449,7 +730,7 @@ function registerApi(ctx, store) {
           const body = await readJson(req)
           const op = String(body?.op ?? '')
           const args = body?.args && typeof body.args === 'object' ? body.args : {}
-          const value = handleOp(store, op, args, ctx)
+          const value = handleOp(ctx, store, rooms, journals, handoff, op, args)
           return json(res, 200, { ok: true, value, state: store.state() })
         }
         return json(res, 404, { error: { code: 'not-found', message: `no route ${method} ${route}` } })

@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-memory",
-  "version": "1.0.0",
+  "version": "1.1.0-beta.1",
   "description": "Per-agent memory, one shared knowledge base, and per-conversation agent roles for DeepSeek Harness",
   "type": "module",
   "exports": {
@@ -12,6 +12,9 @@
   "files": [
     "index.js",
     "store.js",
+    "rooms.js",
+    "journal.js",
+    "handoff.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",

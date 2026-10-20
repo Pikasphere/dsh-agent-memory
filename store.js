@@ -277,6 +277,12 @@ export function createStore(options = {}) {
     }
   }
 
+  /** Cheap lookup for the handoff watcher, which runs on every step. */
+  function memoryUpdatedAt(id) {
+    const found = registry().find(item => item.id === String(id ?? ''))
+    return found?.memoryUpdatedAt ?? ''
+  }
+
   /**
    * Fold the pre-shared layout (`<knowledgeDir>/<agentId>/<entry>.md`) into the
    * single shared directory, once per knowledge directory, keeping the old
@@ -656,6 +662,7 @@ export function createStore(options = {}) {
     saveSettings,
     writeMemory,
     readMemory,
+    memoryUpdatedAt,
     listKnowledge,
     searchKnowledge,
     readKnowledge,

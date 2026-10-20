@@ -28,6 +28,9 @@ DSH 的会话本身是无状态的。跨任务时，你需要自己把上下文�
 | 记忆注入 | 只注入该对话绑定（或默认）智能体的记忆 |
 | 记忆不自动读 | 面板里没有任何"注入"入口，只有绑定；模型侧也没有读记忆的工具 |
 | 知识库自主查 | `agent_knowledge_search` / `read` / `write` 由模型自行决定调用 |
+| 讨论室 | 可建多个房间；用户指定哪些智能体加入，成员可中途加入或退出；每条发言标注是哪个智能体说的 |
+| 私有日志 | 每个智能体一份详细的日记式记录，**只有它自己能读写**，按需检索，不自动注入 |
+| 接力（检查点） | 上下文到阈值时提醒模型先写记忆和日志，两件都完成后自动把检查点写进该智能体的日志；可选额外导出 markdown |
 
 ## 安装
 
@@ -78,6 +81,12 @@ dsh plugin --profile <你的 profile> add /path/to/dsh-agent-memory
 <memoryDir>/memory/<agentId>.log.md     记忆写入审计（追加式）
 
 <knowledgeDir>/<entryId>.md             共享知识库条目（front matter 带 agent 贡献者）
+
+<memoryDir>/rooms/<roomId>/room.json     讨论室元数据（名称、成员）
+<memoryDir>/rooms/<roomId>/messages.jsonl 讨论室发言（每行一条，带发言人）
+<memoryDir>/journal/<agentId>.jsonl      私有日志（每行一条，只有该智能体可读）
+<memoryDir>/handoff.json                 接力配置（阈值、导出目录）
+<memoryDir>/handoff-state.json           每会话的接力阶段
 ```
 
 全部是普通 Markdown / JSON，可以直接用编辑器改，也可以纳入 git。
@@ -90,23 +99,74 @@ dsh plugin --profile <你的 profile> add /path/to/dsh-agent-memory
 | `agent_knowledge_search` | 检索共享知识库；空查询列出最近条目 |
 | `agent_knowledge_read` | 读一条完整内容 |
 | `agent_knowledge_write` | 新增或按 `entry` 修订已有条目 |
+| `agent_room` | `action`: `list` / `read` / `say` / `join` / `leave`，参与讨论室 |
+| `agent_journal` | `action`: `list` / `search` / `read` / `write`，读写**自己的**私有日志 |
 
-工具通过调用会话的绑定解析智能体；显式传 `id` 时优先。
+工具通过调用会话的绑定解析智能体；显式传 `id` 时优先。`agent_journal` 永远只作用于调用方的智能体，**不接受其他智能体 id**，这就是隔离的实现方式。
+
+## 接力（交棒检查点）
+
+长时间任务会让单个会话堆到窗口边缘，越后面越贵、越容易复发早期已经修好的问题。接力做的事很简单：**在还来得及的时候，把这次工作沉淀成记忆和日志**。
+
+| 阶段 | 发生什么 |
+|---|---|
+| watching | 每步进入前用 `ctx.tokenMeter.measure(session).totalTokens` 量压力，低于阈值什么都不做 |
+| requested | 超过阈值：在该步的系统提示里插入一条交接提醒，要求模型先用 `agent_memory_save` 写记忆、再用 `agent_journal` 写一条详细日志 |
+| ready | 检测到记忆的 `memoryUpdatedAt` 与最近一条普通日志都**晚于这次提醒** → 生成检查点 |
+| settled | 检查点写进该智能体的日志（`kind: "checkpoint"`），本会话继续用，不再重复提醒 |
+
+要点：
+
+- **检查点就是一条日志**，不是工作区里的文件。它天然属于该智能体、天然隔离、天然能用 `agent_journal` 找回来。
+- 记忆或日志掉回阈值 90% 以下（例如手动压缩过），这次请求会被清掉，允许下次重新触发。
+- **提醒不换会话、不打断**：它只是在那一步的系统提示里多一段话，模型照常继续手上的工作。
+
+### 阈值
+
+只有一个 `triggerTokens`，默认 **300000**，是**绝对值、不按窗口自适应**。
+
+| 窗口 | 建议阈值 |
+|---|---|
+| 256K（官方默认） | 180000 |
+| 512K 及以上 | 300000–350000 |
+
+窗口越小越要往下调，否则永远不触发，看起来像插件没工作。
+
+### 配置
+
+面板「接力」页签可改，也可以直接写 `<memoryDir>/handoff.json`：
+
+```json
+{
+  "enabled": true,
+  "triggerTokens": 300000,
+  "remindEverySteps": 2,
+  "exportDir": ""
+}
+```
+
+`remindEverySteps` 控制提醒频率：超阈值后**每隔这么多步**才重复一次（默认 2）。第一次触发总会提醒，之后按这个间隔降噪；记忆和日志一落盘就彻底停止。`exportDir` 留空时就只写日志；填了会额外落一份 markdown（`checkpoint-<会话短 id>-<时间>.md`），方便用编辑器看或给别的工具读。
+
+v1 只做「沉淀」，**不会自动新建会话**。自动交棒（新建会话、继承绑定/权限/模型、冻结旧会话）留到 v2。
 
 ## 面板
 
 侧栏出现「智能体」图标，打开后：
 
-- 左侧：智能体列表（记忆字数、贡献条数、被几个对话使用）
-- 右侧三个页签：记忆 / 共享知识库 / 设置
+- 左侧：顶部可在「智能体 / 讨论室」之间切换
+- 智能体视图：列表显示记忆字数、贡献条数、被几个对话使用；右侧五个页签：记忆 / 共享知识库 / 日志 / 接力 / 设置
+- 讨论室视图：新建房间、点成员名字加入或移出、消息流、直接发言（Enter 发送）
 - 记忆页底部列出正在使用它的对话（显示**对话标题 + 短 id**），可一键解除绑定
 
 新建对话时，新会话那一行右侧会出现「智能体」下拉。
 
+讨论室的发言由**用户驱动**：在某个已绑定智能体的对话里让它「去讨论室说点什么」，它会用 `agent_room` 读上下文并发言；也可以由你直接在面板里发言。插件不做自动轮流发言。
+
 ## 已知限制
 
 - **改动插件后必须完全重启 DSH。** 运行中热加载这类 Host 插件会让工具执行上下文失效（所有工具报 `cannot get requested service "sessionProjections" in inactive context`）。这是实测结论，与插件逻辑无关。
-- 知识库是全库共享：不做按智能体的隔离，只有贡献者标记。
+- 知识库是全库共享：不做按智能体的隔离，只有贡献者标记（私有日志才是隔离的）。
+- 讨论室不自动调度发言，也不限制谁先说；顺序完全由使用方式决定。
 - 对话标题来源有两处：live 会话走 `sessionTitle` 服务，已关闭会话读投影缓存；两者都取不到时显示「未命名对话」。
 - 面板的视觉细节依赖宿主主题变量 `--dsw-alias-*`，换主题不会破版，但不会跟随自定义设计系统。
 
@@ -117,6 +177,9 @@ dsh plugin --profile <你的 profile> add /path/to/dsh-agent-memory
 - `index.js` — Host：工具、提示词段落、`/api/agent-memory` 路由
 - `client.js` — 浏览器：面板与新建对话选择器（手写 ModuleLoader bundle）
 - `store.js` — 存储层，不依赖 Cordis，可单独测试
+- `rooms.js` — 讨论室存储
+- `journal.js` — 私有日志存储
+- `handoff.js` — 接力：配置、每会话阶段、检查点文本与导出
 
 测试（无需安装依赖）：
 
@@ -125,6 +188,9 @@ node test-store.mjs      # 记忆与知识库文件层
 node test-host.mjs       # 用 mock ctx 跑注册、工具与 HTTP 分发
 node test-migrate.mjs    # 旧「按智能体分目录」布局合并到共享库
 node test-binding.mjs    # 对话绑定与解析优先级
+node test-rooms.mjs      # 讨论室：成员、中途加入、发言顺序
+node test-journal.mjs    # 私有日志与跨智能体隔离
+node test-handoff.mjs    # 接力：阈值、requested→ready、检查点文本与导出
 ```
 
 ## 许可

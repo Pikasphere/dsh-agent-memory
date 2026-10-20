@@ -98,6 +98,37 @@ window.__ModuleLoader__.load({
         usageUnbind: '解除绑定',
         usageTag: '对话',
         untitled: '未命名对话',
+        rooms: '讨论室',
+        journal: '日志',
+        roomsEmpty: '还没有讨论室。新建一个，再点下面的成员名字把智能体加进来。',
+        roomName: '讨论室名称',
+        roomNamePlaceholder: '例如：架构评审',
+        roomMembers: '成员（点击加入 / 移出）',
+        roomEmpty: '还没有发言。',
+        roomPlaceholder: '以你的身份说一句…（Enter 发送，Shift+Enter 换行）',
+        deleteRoom: '删除讨论室',
+        send: '发送',
+        membersUnit: '人',
+        messagesUnit: '条消息',
+        journalHint: '私有日志：只属于这个智能体的详细记录（类似日记）。其他智能体看不到，也不会自动注入，它自己决定何时查阅。',
+        journalEmpty: '这个智能体还没有写日志。',
+        journalReadOnly: '日志是追加式的，已有条目只读；要补充就新建一条。',
+        handoff: '接力',
+        handoffHint: '上下文压力到达阈值后，这一步会提醒模型先写记忆和日志；两件都完成后自动生成一份交棒检查点，存进该智能体的日志（可选再导出一份 markdown）。',
+        handoffEnabled: '启用接力提醒',
+        handoffEnabledHint: '关闭后不再测量压力，也不生成检查点。',
+        handoffThreshold: '触发的 token 阈值',
+        handoffRemindEvery: '提醒间隔（步）',
+        handoffExport: '导出目录（可选）',
+        handoffExportPlaceholder: '留空则只写入日志',
+        handoffExportHint: '填了就额外写一份 markdown 到该目录；日志始终是唯一真相。',
+        handoffSessions: '当前会话压力',
+        handoffNoSessions: '当前没有活动会话。',
+        'stage.off': '已关闭',
+        'stage.watching': '观察中',
+        'stage.due': '已到阈值',
+        'stage.requested': '等待沉淀',
+        'stage.settled': '已生成检查点',
       },
       en: {
         nav: 'Agents',
@@ -176,6 +207,37 @@ window.__ModuleLoader__.load({
         usageUnbind: 'Unbind',
         usageTag: 'session',
         untitled: 'Untitled conversation',
+        rooms: 'Rooms',
+        journal: 'Journal',
+        roomsEmpty: 'No rooms yet. Create one, then click member names to add agents.',
+        roomName: 'Room name',
+        roomNamePlaceholder: 'e.g. Architecture review',
+        roomMembers: 'Members (click to add / remove)',
+        roomEmpty: 'No messages yet.',
+        roomPlaceholder: 'Say something as yourself… (Enter sends, Shift+Enter adds a line)',
+        deleteRoom: 'Delete room',
+        send: 'Send',
+        membersUnit: 'members',
+        messagesUnit: 'messages',
+        journalHint: 'Private journal: the detailed diary-like record of this one agent. Other agents cannot see it, nothing is injected automatically, and the agent decides when to consult it.',
+        journalEmpty: 'This agent has not written a journal entry yet.',
+        journalReadOnly: 'The journal is append-only, so an existing entry is read-only; add a new one instead.',
+        handoff: 'Handoff',
+        handoffHint: 'When context pressure reaches the threshold, this step asks the model to write its memory and journal first; once both land, a handoff checkpoint is written into that agent journal (optionally exported as markdown).',
+        handoffEnabled: 'Enable handoff reminders',
+        handoffEnabledHint: 'When off, pressure is not measured and no checkpoint is produced.',
+        handoffThreshold: 'Trigger threshold (tokens)',
+        handoffRemindEvery: 'Remind every N steps',
+        handoffExport: 'Export directory (optional)',
+        handoffExportPlaceholder: 'Empty: journal only',
+        handoffExportHint: 'When set, a markdown copy is written there too; the journal stays the source of truth.',
+        handoffSessions: 'Current session pressure',
+        handoffNoSessions: 'No live sessions right now.',
+        'stage.off': 'off',
+        'stage.watching': 'watching',
+        'stage.due': 'at threshold',
+        'stage.requested': 'awaiting checkpoint',
+        'stage.settled': 'checkpoint written',
       },
     }
 
@@ -243,6 +305,20 @@ window.__ModuleLoader__.load({
 .am-divider{height:1px;background:var(--dsw-alias-border-l1);margin:4px 0}
 .am-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .am-usage-title{font-weight:600;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.am-view-tabs{display:flex;gap:4px;padding:0 10px 8px}
+.am-view-tab{flex:1;padding:5px 8px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.am-view-tab:hover{color:var(--dsw-alias-label-primary)}
+.am-view-tab.is-active{border-color:var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 80%,transparent);color:var(--dsw-alias-label-primary)}
+.am-room-members{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 26px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.am-member{padding:3px 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11.5px;font-weight:600;cursor:pointer}
+.am-member:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}
+.am-member.is-in{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 12%,transparent);color:var(--dsw-alias-state-success-primary)}
+.am-room-flow{flex:1;min-height:0;overflow-y:auto;padding:16px 26px;display:flex;flex-direction:column;gap:12px}
+.am-msg{display:flex;flex-direction:column;gap:3px;max-width:720px}
+.am-msg-head{display:flex;align-items:baseline;gap:8px}
+.am-msg-from{font-size:12px;font-weight:650;color:var(--dsw-alias-label-primary)}
+.am-msg-text{font-size:13px;line-height:1.65;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}
+.am-room-compose{display:flex;flex-direction:column;gap:8px;padding:12px 26px 18px;border-top:1px solid var(--dsw-alias-border-l1)}
 .am-split{display:flex;flex-direction:column;gap:10px;max-width:760px}
 .am-card{padding:14px;border-radius:12px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 35%,transparent);display:flex;flex-direction:column;gap:9px}
 .am-danger-card{border-color:color-mix(in srgb,var(--dsw-alias-state-danger-primary,var(--dsw-alias-state-business-primary)) 40%,transparent)}
@@ -356,6 +432,20 @@ window.__ModuleLoader__.load({
       const [draftDesc, setDraftDesc] = useState('')
       const [dirDraft, setDirDraft] = useState('')
       const [kbVersion, setKbVersion] = useState(0)
+      const [view, setView] = useState('agents')
+      const [rooms, setRooms] = useState([])
+      const [roomId, setRoomId] = useState('')
+      const [roomData, setRoomData] = useState(null)
+      const [roomDraft, setRoomDraft] = useState('')
+      const [roomName, setRoomName] = useState('')
+      const [roomCreating, setRoomCreating] = useState(false)
+      const [roomVersion, setRoomVersion] = useState(0)
+      const [journal, setJournal] = useState([])
+      const [journalEditor, setJournalEditor] = useState(null)
+      const [journalVersion, setJournalVersion] = useState(0)
+      const [handoffInfo, setHandoffInfo] = useState(null)
+      const [handoffDraft, setHandoffDraft] = useState({ triggerTokens: 300000, remindEverySteps: 2, exportDir: '' })
+      const [handoffVersion, setHandoffVersion] = useState(0)
       const draftKey = useRef('')
       const alive = useRef(true)
 
@@ -449,6 +539,98 @@ window.__ModuleLoader__.load({
         }
       }, [vault?.id, tab, kbVersion, applyState])
 
+      // rooms and the private journal load lazily, only while their view is open
+      useEffect(() => {
+        if (view !== 'rooms') return undefined
+        let live = true
+        request('/op', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'room.list', args: {} }),
+        })
+          .then(payload => {
+            if (!live) return
+            const list = payload.value?.rooms ?? []
+            setRooms(list)
+            setRoomId(current => (current !== '' && list.some(item => item.id === current) ? current : list[0]?.id ?? ''))
+          })
+          .catch(error => {
+            if (live) setFailure(String(error?.message ?? error))
+          })
+        return () => {
+          live = false
+        }
+      }, [view, roomVersion])
+
+      useEffect(() => {
+        if (roomId === '') {
+          setRoomData(null)
+          return undefined
+        }
+        let live = true
+        request('/op', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'room.read', args: { id: roomId } }),
+        })
+          .then(payload => {
+            if (live) setRoomData(payload.value ?? null)
+          })
+          .catch(error => {
+            if (live) setFailure(String(error?.message ?? error))
+          })
+        return () => {
+          live = false
+        }
+      }, [roomId, roomVersion])
+
+      useEffect(() => {
+        if (!vault || tab !== 'journal') return undefined
+        let live = true
+        request('/op', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'journal.list', args: { id: vault.id } }),
+        })
+          .then(payload => {
+            if (live) setJournal(payload.value?.entries ?? [])
+          })
+          .catch(error => {
+            if (live) setFailure(String(error?.message ?? error))
+          })
+        return () => {
+          live = false
+        }
+      }, [vault?.id, tab, journalVersion])
+
+      useEffect(() => {
+        if (tab !== 'handoff') return undefined
+        let live = true
+        request('/op', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ op: 'handoff.status', args: {} }),
+        })
+          .then(payload => {
+            if (!live) return
+            const value = payload.value ?? null
+            setHandoffInfo(value)
+            if (value) {
+              setHandoffDraft({
+                triggerTokens: value.config.triggerTokens,
+                remindEverySteps: value.config.remindEverySteps,
+                exportDir: value.config.exportDir,
+              })
+            }
+          })
+          .catch(error => {
+            if (live) setFailure(String(error?.message ?? error))
+          })
+        return () => {
+          live = false
+        }
+      }, [tab, handoffVersion])
+
       useEffect(() => {
         if (data) setDirDraft(data.knowledgeDirConfigured ?? '')
       }, [data?.knowledgeDirConfigured])
@@ -458,6 +640,82 @@ window.__ModuleLoader__.load({
         setEditor(null)
         setResults(null)
         setQuery('')
+      }
+
+      const openRoom = id => {
+        setRoomId(id)
+        setRoomDraft('')
+      }
+
+      const createRoom = async () => {
+        const name = roomName.trim()
+        if (name === '') return
+        const created = await call('room.create', { name })
+        setRoomCreating(false)
+        setRoomName('')
+        setRoomVersion(value => value + 1)
+        if (created?.id) setRoomId(created.id)
+      }
+
+      const deleteRoom = async () => {
+        if (!roomData?.room) return
+        if (!window.confirm(`${t('deleteRoom')} “${roomData.room.name}”?`)) return
+        await call('room.delete', { id: roomData.room.id })
+        setRoomId('')
+        setRoomData(null)
+        setRoomVersion(value => value + 1)
+      }
+
+      const sendRoom = async () => {
+        const text = roomDraft.trim()
+        if (text === '' || roomId === '') return
+        const sent = await call('room.say', { id: roomId, text })
+        if (sent) {
+          setRoomDraft('')
+          setRoomVersion(value => value + 1)
+        }
+      }
+
+      const toggleMember = async agentId => {
+        if (!roomData?.room) return
+        const current = roomData.room.members ?? []
+        const members = current.includes(agentId) ? current.filter(item => item !== agentId) : [...current, agentId]
+        await call('room.members', { id: roomData.room.id, members })
+        setRoomVersion(value => value + 1)
+      }
+
+      const saveHandoff = async patch => {
+        const value = await call('handoff.save', patch)
+        if (value) setHandoffVersion(item => item + 1)
+      }
+
+      const journalOpen = async entryId => {
+        if (!vault) return
+        const entry = await call('journal.read', { id: vault.id, entry: entryId })
+        if (entry) setJournalEditor({ id: entry.id, title: entry.title, text: entry.text })
+      }
+
+      const journalNew = () => setJournalEditor({ id: '', title: '', text: '' })
+
+      const journalSave = async () => {
+        if (!vault || !journalEditor) return
+        if (journalEditor.text.trim() === '') return
+        const saved = await call('journal.write', { id: vault.id, title: journalEditor.title, text: journalEditor.text })
+        if (saved) {
+          setJournalEditor(null)
+          setJournalVersion(value => value + 1)
+          setNotice(t('noticeSaved'))
+        }
+      }
+
+      const journalDelete = async () => {
+        if (!vault || !journalEditor || journalEditor.id === '') return
+        if (!window.confirm(t('deleteEntry'))) return
+        const removed = await call('journal.delete', { id: vault.id, entry: journalEditor.id })
+        if (removed) {
+          setJournalEditor(null)
+          setJournalVersion(value => value + 1)
+        }
       }
 
       const saveMemory = async () => {
@@ -575,59 +833,127 @@ window.__ModuleLoader__.load({
       const over = memoryDraft.length > limit
       const list = results ?? entries
 
-      const side = h(
-        'aside',
-        { className: 'am-side' },
+      const sideHead = h(
+        'div',
+        { className: 'am-side-head' },
+        h('span', { className: 'am-side-title' }, view === 'rooms' ? t('rooms') : t('agents')),
         h(
-          'div',
-          { className: 'am-side-head' },
-          h('span', { className: 'am-side-title' }, t('agents')),
-          h(
-            'button',
-            { className: 'am-btn am-btn-sm', onClick: () => setCreating(value => !value) },
-            `+ ${t('create')}`,
-          ),
+          'button',
+          {
+            className: 'am-btn am-btn-sm',
+            onClick: () => (view === 'rooms' ? setRoomCreating(value => !value) : setCreating(value => !value)),
+          },
+          `+ ${t('create')}`,
         ),
-        creating
-          ? h(
-              'div',
-              { className: 'am-card', style: { margin: '0 10px 10px' } },
-              h(Field, { label: t('name') }, h('input', {
-                className: 'am-input',
-                value: draftName,
-                placeholder: t('namePlaceholder'),
-                autoFocus: true,
-                onChange: event => setDraftName(event.target.value),
-                onKeyDown: event => {
-                  if (event.key === 'Enter') void createVault()
-                },
-              })),
-              h(Field, { label: t('desc') }, h('input', {
-                className: 'am-input',
-                value: draftDesc,
-                placeholder: t('descPlaceholder'),
-                onChange: event => setDraftDesc(event.target.value),
-              })),
-              h(
+      )
+
+      const viewTabs = h(
+        'div',
+        { className: 'am-view-tabs' },
+        h(
+          'button',
+          { className: `am-view-tab${view === 'agents' ? ' is-active' : ''}`, onClick: () => setView('agents') },
+          t('agents'),
+        ),
+        h(
+          'button',
+          { className: `am-view-tab${view === 'rooms' ? ' is-active' : ''}`, onClick: () => setView('rooms') },
+          t('rooms'),
+        ),
+      )
+
+      const createCard =
+        view === 'rooms'
+          ? roomCreating
+            ? h(
                 'div',
-                { className: 'am-row am-row-end' },
-                h('button', { className: 'am-btn am-btn-sm am-btn-ghost', onClick: () => setCreating(false) }, t('cancel')),
+                { className: 'am-card', style: { margin: '0 10px 10px' } },
+                h(Field, { label: t('roomName') }, h('input', {
+                  className: 'am-input',
+                  value: roomName,
+                  placeholder: t('roomNamePlaceholder'),
+                  autoFocus: true,
+                  onChange: event => setRoomName(event.target.value),
+                  onKeyDown: event => {
+                    if (event.key === 'Enter') void createRoom()
+                  },
+                })),
+                h(
+                  'div',
+                  { className: 'am-row am-row-end' },
+                  h('button', { className: 'am-btn am-btn-sm am-btn-ghost', onClick: () => setRoomCreating(false) }, t('cancel')),
+                  h(
+                    'button',
+                    {
+                      className: 'am-btn am-btn-sm am-btn-primary',
+                      disabled: roomName.trim() === '',
+                      onClick: () => void createRoom(),
+                    },
+                    t('confirm'),
+                  ),
+                ),
+              )
+            : null
+          : creating
+            ? h(
+                'div',
+                { className: 'am-card', style: { margin: '0 10px 10px' } },
+                h(Field, { label: t('name') }, h('input', {
+                  className: 'am-input',
+                  value: draftName,
+                  placeholder: t('namePlaceholder'),
+                  autoFocus: true,
+                  onChange: event => setDraftName(event.target.value),
+                  onKeyDown: event => {
+                    if (event.key === 'Enter') void createVault()
+                  },
+                })),
+                h(Field, { label: t('desc') }, h('input', {
+                  className: 'am-input',
+                  value: draftDesc,
+                  placeholder: t('descPlaceholder'),
+                  onChange: event => setDraftDesc(event.target.value),
+                })),
+                h(
+                  'div',
+                  { className: 'am-row am-row-end' },
+                  h('button', { className: 'am-btn am-btn-sm am-btn-ghost', onClick: () => setCreating(false) }, t('cancel')),
+                  h(
+                    'button',
+                    {
+                      className: 'am-btn am-btn-sm am-btn-primary',
+                      disabled: draftName.trim() === '',
+                      onClick: () => void createVault(),
+                    },
+                    t('confirm'),
+                  ),
+                ),
+              )
+            : null
+
+      const sideList = h(
+        'div',
+        { className: 'am-vaults' },
+        view === 'rooms'
+          ? rooms.length === 0
+            ? h('p', { className: 'am-note-dim', style: { padding: '8px 10px' } }, t('roomsEmpty'))
+            : rooms.map(room =>
                 h(
                   'button',
                   {
-                    className: 'am-btn am-btn-sm am-btn-primary',
-                    disabled: draftName.trim() === '',
-                    onClick: () => void createVault(),
+                    key: room.id,
+                    className: `am-vault${room.id === roomId ? ' is-active' : ''}`,
+                    onClick: () => openRoom(room.id),
                   },
-                  t('confirm'),
+                  h('span', { className: 'am-vault-row' }, h('span', { className: 'am-vault-name' }, room.name)),
+                  h(
+                    'span',
+                    { className: 'am-vault-meta' },
+                    `${room.members.length} ${t('membersUnit')} · ${room.count} ${t('messagesUnit')}`,
+                  ),
                 ),
-              ),
-            )
-          : null,
-        h(
-          'div',
-          { className: 'am-vaults' },
-          data.vaults.length === 0
+              )
+          : data.vaults.length === 0
             ? h('p', { className: 'am-note-dim', style: { padding: '8px 10px' } }, t('emptyList'))
             : data.vaults.map(item =>
                 h(
@@ -654,7 +980,15 @@ window.__ModuleLoader__.load({
                   ),
                 ),
               ),
-        ),
+      )
+
+      const side = h(
+        'aside',
+        { className: 'am-side' },
+        sideHead,
+        viewTabs,
+        createCard,
+        sideList,
         h(
           'div',
           { className: 'am-side-foot' },
@@ -728,6 +1062,167 @@ window.__ModuleLoader__.load({
                         onClick: () => void unbindSession(item.sessionId),
                       },
                       t('usageUnbind'),
+                    ),
+                  ),
+                ),
+              ),
+        )
+      } else if (tab === 'journal') {
+        body = journalEditor
+          ? h(
+              'div',
+              { className: 'am-split' },
+              h(
+                'div',
+                { className: 'am-row' },
+                h('button', { className: 'am-btn am-btn-sm am-btn-ghost', onClick: () => setJournalEditor(null) }, `← ${t('back')}`),
+                h('span', { style: { flex: 1 } }),
+                journalEditor.id !== ''
+                  ? h('button', { className: 'am-btn am-btn-sm am-btn-danger', onClick: () => void journalDelete() }, t('deleteEntry'))
+                  : null,
+              ),
+              h(Field, { label: t('entryTitle') }, h('input', {
+                className: 'am-input',
+                value: journalEditor.title,
+                onChange: event => setJournalEditor({ ...journalEditor, title: event.target.value }),
+              })),
+              h(Field, { label: t('entryBody') }, h('textarea', {
+                className: 'am-textarea',
+                style: { minHeight: 280 },
+                readOnly: journalEditor.id !== '',
+                value: journalEditor.text,
+                onChange: event => setJournalEditor({ ...journalEditor, text: event.target.value }),
+              })),
+              journalEditor.id === ''
+                ? h(
+                    'div',
+                    { className: 'am-row am-row-end' },
+                    h(
+                      'button',
+                      {
+                        className: 'am-btn am-btn-primary',
+                        disabled: busy !== '' || journalEditor.text.trim() === '',
+                        onClick: () => void journalSave(),
+                      },
+                      t('saveEntry'),
+                    ),
+                  )
+                : h('p', { className: 'am-note-dim' }, t('journalReadOnly')),
+            )
+          : h(
+              'div',
+              { className: 'am-split' },
+              h('p', { className: 'am-note' }, t('journalHint')),
+              h(
+                'div',
+                { className: 'am-row' },
+                h('span', { style: { flex: 1 } }),
+                h('button', { className: 'am-btn am-btn-sm am-btn-primary', onClick: () => journalNew() }, `+ ${t('newEntry')}`),
+              ),
+              journal.length === 0
+                ? h('p', { className: 'am-note-dim' }, t('journalEmpty'))
+                : h(
+                    'div',
+                    { className: 'am-list' },
+                    journal.map(entry =>
+                      h(
+                        'button',
+                        { key: entry.id, className: 'am-item', onClick: () => void journalOpen(entry.id) },
+                        h('span', { className: 'am-item-title' }, entry.title || entry.id),
+                        entry.preview ? h('span', { className: 'am-item-snippet' }, entry.preview) : null,
+                        h(
+                          'span',
+                          { className: 'am-item-meta' },
+                          h('span', { className: 'am-mono' }, entry.id),
+                          h('span', null, ago(entry.at, locale)),
+                        ),
+                      ),
+                    ),
+                  ),
+            )
+      } else if (tab === 'handoff') {
+        body = h(
+          'div',
+          { className: 'am-split' },
+          h('p', { className: 'am-note' }, t('handoffHint')),
+          h(
+            'div',
+            { className: 'am-card' },
+            h(Switch, {
+              checked: handoffInfo?.config?.enabled !== false,
+              label: t('handoffEnabled'),
+              hint: t('handoffEnabledHint'),
+              disabled: busy !== '',
+              onChange: checked => void saveHandoff({ enabled: checked }),
+            }),
+            h(Field, { label: t('handoffThreshold') }, h('input', {
+              className: 'am-input',
+              type: 'number',
+              min: 20000,
+              step: 10000,
+              value: handoffDraft.triggerTokens,
+              onChange: event => setHandoffDraft({ ...handoffDraft, triggerTokens: Number(event.target.value) }),
+            })),
+            h(Field, { label: t('handoffRemindEvery') }, h('input', {
+              className: 'am-input',
+              type: 'number',
+              min: 1,
+              max: 20,
+              step: 1,
+              value: handoffDraft.remindEverySteps,
+              onChange: event => setHandoffDraft({ ...handoffDraft, remindEverySteps: Number(event.target.value) }),
+            })),
+            h(Field, { label: t('handoffExport') }, h('input', {
+              className: 'am-input',
+              value: handoffDraft.exportDir,
+              placeholder: t('handoffExportPlaceholder'),
+              onChange: event => setHandoffDraft({ ...handoffDraft, exportDir: event.target.value }),
+            })),
+            h('p', { className: 'am-note-dim' }, t('handoffExportHint')),
+            h(
+              'div',
+              { className: 'am-row am-row-end' },
+              h(
+                'button',
+                {
+                  className: 'am-btn am-btn-primary',
+                  disabled: busy !== '',
+                  onClick: () => void saveHandoff({
+                    triggerTokens: handoffDraft.triggerTokens,
+                    remindEverySteps: handoffDraft.remindEverySteps,
+                    exportDir: handoffDraft.exportDir,
+                  }),
+                },
+                t('save'),
+              ),
+            ),
+          ),
+          h('span', { className: 'am-label' }, t('handoffSessions')),
+          (handoffInfo?.sessions ?? []).length === 0
+            ? h('p', { className: 'am-note-dim' }, t('handoffNoSessions'))
+            : h(
+                'div',
+                { className: 'am-list' },
+                handoffInfo.sessions.map(session =>
+                  h(
+                    'div',
+                    { key: session.sessionId, className: 'am-card' },
+                    h(
+                      'div',
+                      { className: 'am-row' },
+                      h('span', { className: 'am-usage-title' }, session.title || t('untitled')),
+                      h('span', { className: 'am-tag' }, t(`stage.${session.stage}`)),
+                    ),
+                    h(
+                      'div',
+                      { className: 'am-row' },
+                      h('span', { className: 'am-mono' }, session.sessionId.slice(0, 13)),
+                      h(
+                        'span',
+                        { className: 'am-note-dim' },
+                        `${Number(session.tokens).toLocaleString('en-US')} / ${Number(handoffInfo.config.triggerTokens).toLocaleString('en-US')}`,
+                      ),
+                      session.agentId ? h('span', { className: 'am-tag' }, session.agentId) : null,
                     ),
                   ),
                 ),
@@ -907,13 +1402,9 @@ window.__ModuleLoader__.load({
         )
       }
 
-      return h(
-        'div',
-        { className: 'am-root' },
-        side,
-        h(
-          'section',
-          { className: 'am-main' },
+      const main = h(
+        'section',
+        { className: 'am-main' },
           h(
             'header',
             { className: 'am-head' },
@@ -941,7 +1432,7 @@ window.__ModuleLoader__.load({
             ? h(
                 'nav',
                 { className: 'am-tabs' },
-                ['memory', 'knowledge', 'settings'].map(key =>
+                ['memory', 'knowledge', 'journal', 'handoff', 'settings'].map(key =>
                   h(
                     'button',
                     {
@@ -955,15 +1446,104 @@ window.__ModuleLoader__.load({
                         }
                       },
                     },
-                    key === 'memory' ? t('memory') : key === 'knowledge' ? t('knowledge') : t('settings'),
+                    key === 'memory' ? t('memory') : key === 'knowledge' ? t('knowledge') : key === 'journal' ? t('journal') : key === 'handoff' ? t('handoff') : t('settings'),
                   ),
                 ),
               )
             : null,
           failure !== '' && data !== null ? h('div', { style: { padding: '0 26px' } }, h('p', { className: 'am-error' }, failure)) : null,
           h('div', { className: 'am-body' }, body),
-        ),
       )
+
+      const roomMain =
+        view !== 'rooms' || roomData === null
+          ? null
+          : h(
+              'section',
+              { className: 'am-main' },
+              h(
+                'header',
+                { className: 'am-head' },
+                h(
+                  'div',
+                  { className: 'am-head-main' },
+                  h('h2', { className: 'am-head-name' }, roomData.room.name),
+                  h(
+                    'p',
+                    { className: 'am-head-sub' },
+                    `${roomData.room.members.length} ${t('membersUnit')} · ${roomData.total} ${t('messagesUnit')}`,
+                  ),
+                ),
+                h(
+                  'div',
+                  { className: 'am-head-actions' },
+                  h('button', { className: 'am-btn am-btn-sm am-btn-danger', onClick: () => void deleteRoom() }, t('deleteRoom')),
+                ),
+              ),
+              h(
+                'div',
+                { className: 'am-room-members' },
+                h('span', { className: 'am-label' }, t('roomMembers')),
+                data.vaults.map(item =>
+                  h(
+                    'button',
+                    {
+                      key: item.id,
+                      className: `am-member${roomData.room.members.includes(item.id) ? ' is-in' : ''}`,
+                      onClick: () => void toggleMember(item.id),
+                    },
+                    roomData.room.members.includes(item.id) ? `✓ ${item.name}` : `+ ${item.name}`,
+                  ),
+                ),
+              ),
+              h(
+                'div',
+                { className: 'am-room-flow' },
+                roomData.messages.length === 0
+                  ? h('p', { className: 'am-note-dim' }, t('roomEmpty'))
+                  : roomData.messages.map(message =>
+                      h(
+                        'div',
+                        { key: message.id, className: 'am-msg' },
+                        h(
+                          'div',
+                          { className: 'am-msg-head' },
+                          h('span', { className: 'am-msg-from' }, message.from.name || message.from.id),
+                          h('span', { className: 'am-note-dim' }, ago(message.at, locale)),
+                        ),
+                        h('div', { className: 'am-msg-text' }, message.text),
+                      ),
+                    ),
+              ),
+              h(
+                'div',
+                { className: 'am-room-compose' },
+                h('textarea', {
+                  className: 'am-textarea',
+                  style: { minHeight: 64, maxHeight: 160 },
+                  value: roomDraft,
+                  placeholder: t('roomPlaceholder'),
+                  onChange: event => setRoomDraft(event.target.value),
+                  onKeyDown: event => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      void sendRoom()
+                    }
+                  },
+                }),
+                h(
+                  'div',
+                  { className: 'am-row am-row-end' },
+                  h(
+                    'button',
+                    { className: 'am-btn am-btn-primary', disabled: busy !== '' || roomDraft.trim() === '', onClick: () => void sendRoom() },
+                    t('send'),
+                  ),
+                ),
+              ),
+            )
+
+      return h('div', { className: 'am-root' }, side, view === 'rooms' ? roomMain : main)
     }
 
     // ── new-conversation agent picker ───────────────────────────────────────

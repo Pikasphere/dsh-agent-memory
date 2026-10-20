@@ -14,7 +14,7 @@ const load = name => import(`file://${path.join(here, name).replace(/\\/g, '/')}
 const { apply } = await load('index.js')
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-memory-host-'))
-const registered = { tools: [], sections: [], routes: [], effects: [] }
+const registered = { tools: [], sections: [], contexts: [], routes: [], effects: [] }
 
 function scope(deps) {
   return {
@@ -37,6 +37,10 @@ function scope(deps) {
         registered.sections.push(section)
         return () => {}
       },
+      context(entry) {
+        registered.contexts.push(entry)
+        return () => {}
+      },
     },
     webServer: {
       register(route) {
@@ -57,6 +61,9 @@ const ctx = {
   get() {
     return undefined
   },
+  on() {
+    return () => {}
+  },
 }
 
 apply(ctx, { memoryDir: path.join(scratch, 'mem'), knowledgeDir: path.join(scratch, 'kb') })
@@ -64,10 +71,12 @@ apply(ctx, { memoryDir: path.join(scratch, 'mem'), knowledgeDir: path.join(scrat
 // ── registration ────────────────────────────────────────────────────────────
 const names = registered.tools.map(tool => tool.name).sort()
 assert.deepEqual(names, [
+  'agent_journal',
   'agent_knowledge_read',
   'agent_knowledge_search',
   'agent_knowledge_write',
   'agent_memory_save',
+  'agent_room',
 ])
 for (const tool of registered.tools) {
   assert.equal(typeof tool.description, 'string')
@@ -219,6 +228,27 @@ await registered.routes[0].handler(
 )
 assert.equal(forbiddenRes.out.status, 403)
 console.log('errors + trust fence ok')
+
+// ── discussion rooms + private journal over HTTP ────────────────────────────
+const room = await call('POST', '/op', { op: 'room.create', args: { name: '测试室' } })
+const roomId = room.payload.value.id
+assert.match(roomId, /^r-[a-z0-9]{4,12}$/)
+await call('POST', '/op', { op: 'room.members', args: { id: roomId, members: [id, secondId] } })
+await call('POST', '/op', { op: 'room.say', args: { id: roomId, text: '你好' } })
+const transcript = await call('POST', '/op', { op: 'room.read', args: { id: roomId } })
+assert.equal(transcript.payload.value.total, 1)
+assert.equal(transcript.payload.value.messages[0].from.kind, 'user')
+const roomList = await call('POST', '/op', { op: 'room.list', args: {} })
+assert.equal(roomList.payload.value.rooms.length, 1)
+assert.deepEqual(roomList.payload.value.rooms[0].members, [id, secondId])
+
+await call('POST', '/op', { op: 'journal.write', args: { id, title: '日志一', text: '只有这个智能体能看到的细节' } })
+const journal = await call('POST', '/op', { op: 'journal.list', args: { id } })
+assert.equal(journal.payload.value.total, 1)
+assert.equal(journal.payload.value.entries[0].title, '日志一')
+const otherJournal = await call('POST', '/op', { op: 'journal.list', args: { id: secondId } })
+assert.equal(otherJournal.payload.value.total, 0)
+console.log('rooms + journal ok')
 
 // ── teardown ────────────────────────────────────────────────────────────────
 for (const effect of registered.effects) {
