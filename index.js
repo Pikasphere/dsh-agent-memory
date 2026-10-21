@@ -472,6 +472,28 @@ function sessionCwd(ctx, sessionId) {
   }
 }
 
+/**
+ * The Agent preset a Session actually runs. DSH keeps this in the
+ * `agentPreset` projection (a live preset switch appends an event without
+ * touching the immutable header), so read the projection first and only fall
+ * back to the header on older hosts.
+ */
+function agentPresetOf(ctx, sessionId) {
+  try {
+    const session = sessionOf(ctx, sessionId)
+    if (session === undefined) return ''
+    const projections = ctx.get('sessionProjections')
+    if (projections !== undefined && typeof projections.stateOf === 'function') {
+      const value = projections.stateOf(session, 'agentPreset')
+      if (typeof value === 'string' && value !== '') return value
+    }
+    const headerPreset = session.header?.agentPreset
+    return typeof headerPreset === 'string' ? headerPreset : ''
+  } catch {
+    return ''
+  }
+}
+
 function approvalOf(ctx, sessionId) {
   try {
     const session = sessionOf(ctx, sessionId)
@@ -700,6 +722,7 @@ function handoffStatus(ctx, store, handoff) {
       agentId: bound,
       stage,
       workspaceId: workspaceIdOf(ctx, sessionCwd(ctx, sessionId)),
+      agentPreset: agentPresetOf(ctx, sessionId),
       requestedAt: state?.requestedAt,
       settledAt: state?.settledAt,
       checkpoint: state?.checkpoint,
@@ -989,7 +1012,13 @@ async function handleOp(ctx, store, rooms, journals, handoff, archives, op, args
         approval: approvalOf(ctx, sessionId),
         model: modelOf(ctx, sessionId),
       })
-      return { sessionId, agentId, workspaceId: workspaceIdOf(ctx, cwd), next }
+      return {
+        sessionId,
+        agentId,
+        workspaceId: workspaceIdOf(ctx, cwd),
+        agentPreset: agentPresetOf(ctx, sessionId),
+        next,
+      }
     }
     case 'workspace.list':
       return { workspaces: listWorkspaces(ctx) }

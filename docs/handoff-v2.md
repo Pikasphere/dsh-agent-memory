@@ -79,7 +79,8 @@
   3. `stage === 'settled'` 且 `armed === true`（检查点写入时武装的意图还在 30 分钟有效期内）；
   4. 该会话当前没有运行中的回合（`bound.list` 的 `running` 为 false）；
   5. 同一个 session 只触发一次。
-- 触发后 `uiWorkspace.startSession(row.workspaceId)`；新会话的 `agent/created` 消费意图，继承绑定/审批/模型，并把旧会话记为归档。
+- 触发后 `uiWorkspace.startSession(row.workspaceId, { agentPreset: row.agentPreset })`；新会话的 `agent/created` 消费意图，继承绑定/审批/模型，并把旧会话记为归档。
+- 模式（Agent preset）由客户端透传：`handoff.status` 每行从 `agentPreset` 投影读当前 preset（实时切换后的值，不是 header），`handoff.arm` 响应也带同一个字段，供手动「续会话」复用。
 - 这是客户端行为：DSH 页面关掉就不会切换；也不在回合中途切，避免把正在生成的回答甩在旧会话里。
 
 ### 4. 未决问题

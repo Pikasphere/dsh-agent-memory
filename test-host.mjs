@@ -222,9 +222,16 @@ ctx.get = name => {
     return {
       get: sessionId => ({
         id: sessionId,
-        header: String(sessionId).includes('sub') ? { origin: 'subagent' } : {},
+        header: String(sessionId).includes('sub') ? { origin: 'subagent' } : { agentPreset: 'cordis' },
         requestHeader: () => ({ config: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' } }),
       }),
+    }
+  }
+  // DSH keeps a session's live preset in a projection; the header is only the
+  // creation-time value. Mirror that so the status row and arm response use it.
+  if (name === 'sessionProjections') {
+    return {
+      stateOf: (session, key) => (key === 'agentPreset' ? (String(session.id).includes('sub') ? 'standard' : 'cordis') : undefined),
     }
   }
   if (name === 'tokenMeter') return { measure: () => ({ totalTokens: 310000 }) }
@@ -288,6 +295,7 @@ assert.equal(status.payload.value.sessions.length, 1)
 assert.equal(status.payload.value.sessions[0].agentId, id)
 assert.equal(status.payload.value.sessions[0].stage, 'requested')
 assert.equal(status.payload.value.sessions[0].workspaceId, 'w-work')
+assert.equal(status.payload.value.sessions[0].agentPreset, 'cordis')
 assert.ok(status.payload.value.sessions[0].requestedAt)
 assert.equal(status.payload.value.sessions[0].checkpoint, undefined)
 const autoSaved = await call('POST', '/op', { op: 'handoff.save', args: { autoSwitch: true } })
@@ -310,6 +318,7 @@ assert.equal(armed.status, 200)
 assert.equal(armed.payload.value.next.agentId, id)
 assert.equal(armed.payload.value.next.cwd, 'E:\\work')
 assert.equal(armed.payload.value.next.approval, 'never')
+assert.equal(armed.payload.value.agentPreset, 'cordis')
 assert.deepEqual(armed.payload.value.next.model, { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' })
 
 // resume is not a new session: the intent survives

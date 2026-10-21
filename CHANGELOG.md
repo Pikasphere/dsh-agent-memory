@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0-beta.2 — 2026-10-21
+
+### 修复
+
+- **自动开启新对话会丢模式**：新建的会话原来回落到默认 Agent preset；现在沿用源会话当前的 preset（例如「创造模式」）。
+- **续会话同样丢模式**：手动「续会话」也会继承源会话的 preset，而不是回到默认模式。
+- 客户端 `startSession` 现在带上 `agentPreset`；`handoff.status` 每个会话与 `handoff.arm` 响应新增 `agentPreset`（读 `agentPreset` 投影，旧 host 回退到 session header）。
+
+### 说明
+
+- 客户端改动需要刷新页面（或重启应用）后生效。
+
 ## 1.3.0-beta.1 — 2026-10-21
 
 ### 新增

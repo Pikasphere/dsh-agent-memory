@@ -844,8 +844,12 @@ window.__ModuleLoader__.load({
           setFailure(t('handoffNoWorkspace'))
           return
         }
-        // Inherit the source session's workspace, not whatever tab was last used.
-        ui.startSession(armed.workspaceId || undefined)
+        // Inherit the source session's workspace and Agent preset, not whatever
+        // tab or mode was last used.
+        ui.startSession(
+          armed.workspaceId || undefined,
+          armed.agentPreset ? { agentPreset: armed.agentPreset } : undefined,
+        )
         setHandoffVersion(item => item + 1)
       }
 
@@ -2279,7 +2283,12 @@ window.__ModuleLoader__.load({
                   if (ui !== undefined && typeof ui.startSession === 'function') {
                     autoSwitched.add(selectedId)
                     try {
-                      ui.startSession(row.workspaceId || undefined)
+                      // Keep the conversation's mode: a fresh Session starts on
+                      // the default preset unless we pass the source one along.
+                      ui.startSession(
+                        row.workspaceId || undefined,
+                        row.agentPreset ? { agentPreset: row.agentPreset } : undefined,
+                      )
                     } catch {
                       autoSwitched.delete(selectedId)
                     }
