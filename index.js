@@ -716,6 +716,13 @@ function registerHandoff(ctx, store, journals, handoff, archives, hints) {
       ctx.on('agent/pre-step', async (payload, next) => {
         try {
           const sessionId = String(payload?.agent?.id ?? '')
+          // Archived conversations are read-only: reject the step before it
+          // reaches the model. Weak archives stay openable in DSH; this gate is
+          // what actually stops them from continuing.
+          if (sessionId !== '' && archives.levelOf(sessionId) !== '') {
+            hints.delete(sessionId)
+            return { kind: 'reject' }
+          }
           const config = handoff.config()
           if (!config.enabled || sessionId === '') {
             if (sessionId !== '') hints.delete(sessionId)
@@ -794,17 +801,15 @@ function registerHandoff(ctx, store, journals, handoff, archives, hints) {
             }
           }
           // The conversation we just left is now superseded: park it as a weak
-          // archive (readable, no new turns) until the user cancels or promotes.
+          // archive. Weak stays a normal (viewable) session in DSH and is made
+          // read-only by the pre-step gate below; strong additionally uses the
+          // native DSH archive.
           if (typeof taken.sessionId === 'string' && taken.sessionId !== '' && taken.sessionId !== sessionId) {
             try {
-              const registry = ctx.get('workspaceRegistry')
-              if (registry !== undefined && typeof registry.archiveSession === 'function') {
-                await registry.archiveSession(taken.sessionId, { stopActivity: true })
-                archives.setLevel(taken.sessionId, 'weak', {
-                  cwd: sessionCwd(ctx, taken.sessionId),
-                  title: sessionTitleOf(ctx, taken.sessionId),
-                })
-              }
+              archives.setLevel(taken.sessionId, 'weak', {
+                cwd: sessionCwd(ctx, taken.sessionId),
+                title: sessionTitleOf(ctx, taken.sessionId),
+              })
             } catch (error) {
               recordError(store, 'handoff/archive', error)
             }
@@ -999,12 +1004,15 @@ async function handleOp(ctx, store, rooms, journals, handoff, archives, op, args
       }
       const meta = { cwd: sessionCwd(ctx, sessionId), title: sessionTitleOf(ctx, sessionId) }
       const registry = ctx.get('workspaceRegistry')
-      if (level === '') {
+      // Weak is a plugin-level read-only park: the session stays a normal DSH
+      // session so it can be opened for reading. Strong leans on the native
+      // DSH archive, which really hides it and refuses turns.
+      if (level === 'weak' || level === '') {
         if (registry !== undefined && typeof registry.unarchiveSession === 'function') {
           await registry.unarchiveSession(sessionId)
         }
-        archives.setLevel(sessionId, '')
-        return { sessionId, level: '' }
+        archives.setLevel(sessionId, level, meta)
+        return { sessionId, level }
       }
       if (registry !== undefined && typeof registry.archiveSession === 'function') {
         await registry.archiveSession(sessionId, { stopActivity: true })

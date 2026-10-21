@@ -335,7 +335,8 @@ assert.equal(modelCalls.length, 1)
 console.log('handoff next-session inheritance ok')
 
 // ── weak auto-archive + manual level changes ────────────────────────────────
-assert.deepEqual(archiveCalls[0], { sessionId: 'session-test-1234', options: { stopActivity: true } })
+// Weak is plugin-level: the session stays a normal DSH session (openable).
+assert.equal(archiveCalls.length, 0)
 const archivedRow = (await call('POST', '/op', { op: 'agent.sessions', args: { id } })).payload.value.sessions.find(
   item => item.sessionId === 'session-test-1234',
 )
@@ -343,14 +344,19 @@ assert.equal(archivedRow.archive, 'weak')
 
 const promoted = await call('POST', '/op', { op: 'archive.set', args: { sessionId: 'session-test-1234', level: 'strong' } })
 assert.equal(promoted.payload.value.level, 'strong')
+assert.deepEqual(archiveCalls[0], { sessionId: 'session-test-1234', options: { stopActivity: true } })
 const strongRow = (await call('POST', '/op', { op: 'bound.list', args: {} })).payload.value.agents
   .flatMap(agent => agent.sessions)
   .find(item => item.sessionId === 'session-test-1234')
 assert.equal(strongRow.archive, 'strong')
 
+// strong → weak really unarchives; weak → '' is just a level reset
+const downgraded = await call('POST', '/op', { op: 'archive.set', args: { sessionId: 'session-test-1234', level: 'weak' } })
+assert.equal(downgraded.payload.value.level, 'weak')
+assert.ok(unarchiveCalls.includes('session-test-1234'))
+
 const cleared = await call('POST', '/op', { op: 'archive.set', args: { sessionId: 'session-test-1234', level: '' } })
 assert.equal(cleared.payload.value.level, '')
-assert.ok(unarchiveCalls.includes('session-test-1234'))
 assert.equal(
   (await call('POST', '/op', { op: 'agent.sessions', args: { id } })).payload.value.sessions.find(
     item => item.sessionId === 'session-test-1234',

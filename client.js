@@ -161,9 +161,10 @@ window.__ModuleLoader__.load({
         archiveToStrong: '转为强归档',
         archiveToWeak: '转为弱归档',
         archiveDo: '归档',
-        archiveWeakHint: '已自动归档：可以查看历史，但不能继续对话。可以取消归档或转为强归档。',
-        archiveStrongHint: '强归档：只在对话页签里灰色显示，侧栏不出现；可以转回弱归档。',
-        archiveDoHint: '归档为只读，之后可以取消。',
+        archiveWeakHint: '弱归档：可以打开查看历史，但发送会被拒绝；可以取消归档或转为强归档。',
+        archiveStrongHint: '强归档：DSH 原生归档，侧栏不显示、列表灰色、不能打开；可以转回弱归档。',
+        archiveBanner: '该对话已归档（只读）：发送会被拒绝',
+        archiveDoHint: '归档为只读，可以随时取消。',
       },
       en: {
         nav: 'Agents',
@@ -305,8 +306,9 @@ window.__ModuleLoader__.load({
         archiveToStrong: 'Make strong',
         archiveToWeak: 'Make weak',
         archiveDo: 'Archive',
-        archiveWeakHint: 'Auto-archived: history stays readable, but the conversation cannot continue. Cancel it or promote it to strong.',
-        archiveStrongHint: 'Strongly archived: grey in the Sessions tab, hidden from the sidebar; can be turned back to weak.',
+        archiveWeakHint: 'Weakly archived: history stays readable, but sending is rejected. Cancel it or promote it to strong.',
+        archiveStrongHint: 'Strongly archived: native DSH archive — hidden from the sidebar, grey here, cannot open. Can be turned back to weak.',
+        archiveBanner: 'This conversation is archived (read-only): sending is blocked',
         archiveDoHint: 'Archive as read-only; you can cancel later.',
       },
     }
@@ -396,6 +398,7 @@ window.__ModuleLoader__.load({
 .am-side-session-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-business-primary);flex:none}
 .am-side-session.is-weak{opacity:.55}
 .am-card.is-strong{opacity:.5}
+.am-archive-banner{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1);background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 94%,transparent);box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:12px;color:var(--dsw-alias-label-secondary)}
 .am-view-tabs{display:flex;gap:4px;padding:0 10px 8px}
 .am-view-tab{flex:1;padding:5px 8px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .am-view-tab:hover{color:var(--dsw-alias-label-primary)}
@@ -1537,15 +1540,17 @@ window.__ModuleLoader__.load({
                           )
                         : null,
                       h('span', { style: { flex: 1 } }),
-                      h(
-                        'button',
-                        {
-                          className: 'am-btn am-btn-sm am-btn-primary',
-                          disabled: busy !== '',
-                          onClick: () => openBoundSession(session.sessionId),
-                        },
-                        t('sessionsOpen'),
-                      ),
+                      level !== 'strong'
+                        ? h(
+                            'button',
+                            {
+                              className: 'am-btn am-btn-sm am-btn-primary',
+                              disabled: busy !== '',
+                              onClick: () => openBoundSession(session.sessionId),
+                            },
+                            t('sessionsOpen'),
+                          )
+                        : null,
                       canArchive && level === 'strong'
                         ? h(
                             'button',
@@ -2059,6 +2064,7 @@ window.__ModuleLoader__.load({
         let applied = ''
         let sectionOpen = true
         let lastAgents = []
+        let bannerSessionId = ''
         let observer = null
         let observedRoot = null
         const collapsed = new Set()
@@ -2204,6 +2210,44 @@ window.__ModuleLoader__.load({
               lastAgents = []
               document.getElementById('am-sidebar-agents')?.remove()
             }
+            // A read-only banner for the currently selected archived session.
+            const selectedRow = document.querySelector('[data-row-key^="session:"][aria-selected="true"]')
+            const selectedId = selectedRow === null ? '' : selectedRow.getAttribute('data-row-key').slice('session:'.length)
+            const selectedLevel =
+              selectedId === ''
+                ? ''
+                : lastAgents.flatMap(agent => agent.sessions).find(item => item.sessionId === selectedId)?.archive ?? ''
+            let banner = document.getElementById('am-archive-banner')
+            if (selectedLevel !== '') {
+              bannerSessionId = selectedId
+              if (banner === null) {
+                banner = document.createElement('div')
+                banner.id = 'am-archive-banner'
+                banner.className = 'am-archive-banner'
+                banner.addEventListener('click', event => {
+                  if (event.target.closest('[data-action="unarchive"]') === null) return
+                  void request('/op', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ op: 'archive.set', args: { sessionId: bannerSessionId, level: '' } }),
+                  })
+                    .then(() => {
+                      banner.remove()
+                      void sync()
+                    })
+                    .catch(() => {})
+                })
+                document.body.appendChild(banner)
+              }
+              if (banner.dataset.level !== selectedLevel) {
+                banner.dataset.level = selectedLevel
+                banner.innerHTML =
+                  `<span>${escape(t('archiveBanner'))}</span>` +
+                  `<button type="button" class="am-btn am-btn-sm am-btn-ghost" data-action="unarchive">${escape(t('archiveCancel'))}</button>`
+              }
+            } else if (banner !== null) {
+              banner.remove()
+            }
           } catch {
             /* the API may not be mounted yet */
           }
@@ -2216,6 +2260,7 @@ window.__ModuleLoader__.load({
           observer?.disconnect()
           style.remove()
           document.getElementById('am-sidebar-agents')?.remove()
+          document.getElementById('am-archive-banner')?.remove()
         }
       }, 'agent-memory: hide bound sessions')
 
