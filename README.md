@@ -1,6 +1,6 @@
 # dsh-agent-vault
 
-> npm 包名是 **dsh-agent-vault**（原 `dsh-agent-memory` 在 npm 上已被他人占用；代码目录仍叫 `dsh-agent-memory`）。
+> npm 包名是 **dsh-agent-vault**（原 `dsh-agent-memory` 在 npm 上已被他人占用）。
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）用的智能体记忆与知识库插件。
 
