@@ -18,6 +18,11 @@ assert.equal(config.triggerTokens, DEFAULT_TRIGGER_TOKENS)
 assert.equal(config.triggerTokens, 300000)
 assert.equal(config.remindEverySteps, 2)
 assert.equal(config.exportDir, '')
+assert.equal(config.autoSwitch, false)
+handoff.saveConfig({ autoSwitch: true })
+assert.equal(handoff.config().autoSwitch, true)
+handoff.saveConfig({ autoSwitch: false })
+assert.equal(handoff.config().autoSwitch, false)
 
 // below the threshold: nothing happens
 assert.equal(handoff.evaluate({ sessionId: 's1', tokens: 1000 }).stage, 'watching')

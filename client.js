@@ -124,6 +124,8 @@ window.__ModuleLoader__.load({
         handoffExportHint: '填了就额外写一份 markdown 到该目录；日志始终是唯一真相。',
         handoffSessions: '当前会话压力',
         handoffNoSessions: '当前没有活动会话。',
+        autoSwitch: '检查点后自动开启新对话',
+        autoSwitchHint: '当前会话写下检查点、且这个回合结束后，自动新建一个对话并切过去（继承绑定、工作区、审批策略与模型），旧会话转为归档。需要面板保持打开或页面在运行。',
         'stage.off': '已关闭',
         'stage.watching': '观察中',
         'stage.due': '已到阈值',
@@ -269,6 +271,8 @@ window.__ModuleLoader__.load({
         handoffExportHint: 'When set, a markdown copy is written there too; the journal stays the source of truth.',
         handoffSessions: 'Current session pressure',
         handoffNoSessions: 'No live sessions right now.',
+        autoSwitch: 'Start a new conversation after a checkpoint',
+        autoSwitchHint: 'Once the current session has a checkpoint and its turn is over, a fresh conversation opens automatically in the same workspace with the inherited agent, approval policy and model; the old one is archived.',
         'stage.off': 'off',
         'stage.watching': 'watching',
         'stage.due': 'at threshold',
@@ -1364,6 +1368,13 @@ window.__ModuleLoader__.load({
               disabled: busy !== '',
               onChange: checked => void saveHandoff({ enabled: checked }),
             }),
+            h(Switch, {
+              checked: handoffInfo?.config?.autoSwitch === true,
+              label: t('autoSwitch'),
+              hint: t('autoSwitchHint'),
+              disabled: busy !== '',
+              onChange: checked => void saveHandoff({ autoSwitch: checked }),
+            }),
             h(Field, { label: t('handoffThreshold') }, h('input', {
               className: 'am-input',
               type: 'number',
@@ -2065,6 +2076,7 @@ window.__ModuleLoader__.load({
         let sectionOpen = true
         let lastAgents = []
         let bannerSessionId = ''
+        const autoSwitched = new Set()
         let observer = null
         let observedRoot = null
         const collapsed = new Set()
@@ -2247,6 +2259,33 @@ window.__ModuleLoader__.load({
               }
             } else if (banner !== null) {
               banner.remove()
+            }
+            // Auto handoff: when the selected session has just written a
+            // checkpoint and its turn is over, open a fresh conversation.
+            if (state?.capabilities?.arm === true && selectedId !== '') {
+              const statusPayload = await request('/op', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ op: 'handoff.status', args: {} }),
+              })
+              if (stopped) return
+              const status = statusPayload.value
+              if (status?.config?.autoSwitch === true) {
+                const row = (status.sessions ?? []).find(item => item.sessionId === selectedId)
+                const running =
+                  lastAgents.flatMap(agent => agent.sessions).find(item => item.sessionId === selectedId)?.running === true
+                if (row?.stage === 'settled' && row.armed === true && !running && !autoSwitched.has(selectedId)) {
+                  const ui = ctx.get('uiWorkspace')
+                  if (ui !== undefined && typeof ui.startSession === 'function') {
+                    autoSwitched.add(selectedId)
+                    try {
+                      ui.startSession(row.workspaceId || undefined)
+                    } catch {
+                      autoSwitched.delete(selectedId)
+                    }
+                  }
+                }
+              }
             }
           } catch {
             /* the API may not be mounted yet */

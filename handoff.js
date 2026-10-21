@@ -65,6 +65,7 @@ export function createHandoff(options = {}) {
       triggerTokens: clampTokens(raw.triggerTokens, DEFAULT_TRIGGER_TOKENS),
       remindEverySteps: Math.min(Math.max(Math.round(Number(raw.remindEverySteps) || DEFAULT_REMIND_EVERY), 1), 20),
       exportDir: typeof raw.exportDir === 'string' ? raw.exportDir.trim() : '',
+      autoSwitch: raw.autoSwitch === true,
     }
   }
 
@@ -77,6 +78,7 @@ export function createHandoff(options = {}) {
       next.remindEverySteps = Math.min(Math.max(Math.round(Number(patch.remindEverySteps) || current.remindEverySteps), 1), 20)
     }
     if (typeof patch.exportDir === 'string') next.exportDir = patch.exportDir.trim()
+    if (typeof patch.autoSwitch === 'boolean') next.autoSwitch = patch.autoSwitch
     writeAtomic(files.config, `${JSON.stringify(next, null, 2)}\n`)
     return next
   }

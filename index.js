@@ -699,6 +699,7 @@ function handoffStatus(ctx, store, handoff) {
       tokens,
       agentId: bound,
       stage,
+      workspaceId: workspaceIdOf(ctx, sessionCwd(ctx, sessionId)),
       requestedAt: state?.requestedAt,
       settledAt: state?.settledAt,
       checkpoint: state?.checkpoint,
@@ -972,6 +973,7 @@ async function handleOp(ctx, store, rooms, journals, handoff, archives, op, args
         triggerTokens: args.triggerTokens,
         remindEverySteps: args.remindEverySteps,
         exportDir: args.exportDir,
+        autoSwitch: args.autoSwitch,
       })
     case 'handoff.reset':
       handoff.clearState(args.sessionId)
