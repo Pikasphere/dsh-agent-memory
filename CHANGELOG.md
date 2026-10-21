@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0-beta.4 — 2026-10-21
+
+### 修复
+
+- **自动归档没有生效**：归档调用把 `sessionId` 直接传给了 `workspaceController.archiveSession`，但那个 Remote 接收的是请求对象，结果归档成 `'undefined'` 并失败。改用 `workspaceRegistry.archiveSession(sessionId, { stopActivity: true })`（顺手加了空 id 防御）。
+- `archive.set` 同样改走 registry，取消归档时才真正 unarchive。
+
+### 变更
+
+- 面板「对话」页签：工作区下拉**选中即切换**（`uiWorkspace.openWorkspace`），不再需要单独的「切换过去」按钮。
+
 ## 1.2.0-beta.3 — 2026-10-20
 
 ### 新增

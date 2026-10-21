@@ -140,11 +140,10 @@ window.__ModuleLoader__.load({
         handoffArmed: '待续',
         handoffArmedHint: '30 分钟内在这个目录新建的会话会自动绑定该智能体，并继承审批策略。',
         sessionsTab: '对话',
-        sessionsHint: '这里按智能体收拢它的对话。已绑定的对话会从左侧工作区列表里隐藏，只能从这里或搜索找到。',
+        sessionsHint: '这里按智能体收拢它的对话。已绑定的对话会从左侧工作区列表里隐藏，只能从这里或搜索找到；选择工作区会立即切过去。',
         sessionsTitle: '它的对话',
         sessionsEmpty: '这个智能体还没有对话。选一个工作区，点「新建对话」开始。',
         sessionsWorkspace: '工作区',
-        sessionsSwitch: '切换过去',
         sessionsNew: '新建对话',
         sessionsOpen: '打开',
         sessionsNoWorkspace: '未分组',
@@ -285,11 +284,10 @@ window.__ModuleLoader__.load({
         handoffArmed: 'ready to continue',
         handoffArmedHint: 'A new session in this directory within 30 minutes will inherit this agent and its approval policy.',
         sessionsTab: 'Sessions',
-        sessionsHint: 'Each agent keeps its own conversations here. Bound conversations are hidden from the workspace list on the left; find them here or through search.',
+        sessionsHint: 'Each agent keeps its own conversations here. Bound conversations are hidden from the workspace list on the left; find them here or through search. Picking a workspace switches to it right away.',
         sessionsTitle: 'Its conversations',
         sessionsEmpty: 'This agent has no conversation yet. Pick a workspace and press New conversation.',
         sessionsWorkspace: 'Workspace',
-        sessionsSwitch: 'Switch there',
         sessionsNew: 'New conversation',
         sessionsOpen: 'Open',
         sessionsNoWorkspace: 'unassigned',
@@ -863,15 +861,15 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const switchWorkspace = async () => {
-        if (sessionsWorkspace === '') return
+      const switchWorkspace = async workspaceId => {
+        if (workspaceId === '') return
         const ui = sessionsUi()
         if (!ui || typeof ui.openWorkspace !== 'function') {
           setFailure(t('handoffNoWorkspace'))
           return
         }
         try {
-          await ui.openWorkspace(sessionsWorkspace)
+          await ui.openWorkspace(workspaceId)
         } catch (error) {
           setFailure(String(error?.message ?? error))
         }
@@ -1485,20 +1483,15 @@ window.__ModuleLoader__.load({
                     style: { flex: '1 1 200px', width: 'auto' },
                     value: sessionsWorkspace,
                     disabled: busy !== '' || (sessionsInfo.workspaces ?? []).length === 0,
-                    onChange: event => setSessionsWorkspace(event.target.value),
+                    onChange: event => {
+                      const next = event.target.value
+                      setSessionsWorkspace(next)
+                      if (data?.capabilities?.sessions === true) void switchWorkspace(next)
+                    },
                   },
                   (sessionsInfo.workspaces ?? []).map(item =>
                     h('option', { key: item.id, value: item.id }, item.title || item.path),
                   ),
-                ),
-                h(
-                  'button',
-                  {
-                    className: 'am-btn am-btn-sm',
-                    disabled: busy !== '' || sessionsWorkspace === '',
-                    onClick: () => void switchWorkspace(),
-                  },
-                  t('sessionsSwitch'),
                 ),
                 h(
                   'button',
