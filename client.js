@@ -11,7 +11,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-agent-memory',
+  id: 'dsh-agent-vault',
   factory(require) {
     const React = require('react')
     const h = React.createElement
