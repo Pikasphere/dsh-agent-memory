@@ -726,6 +726,12 @@ window.__ModuleLoader__.load({
       }, [tab, handoffVersion])
 
       useEffect(() => {
+        // A different agent may live in other workspaces; let the fetch pick
+        // the most recent one instead of keeping the previous agent's choice.
+        setSessionsWorkspace('')
+      }, [vault?.id])
+
+      useEffect(() => {
         if (!vault || tab !== 'sessions') return undefined
         let live = true
         Promise.all([
