@@ -4,7 +4,7 @@
 
 ### 包名
 
-- npm 包名改为 **`dsh-agent-vault`**（`dsh-agent-memory` 已被他人占用，无法发布）。Loader 条目 id 仍是 `agent-memory`，本地目录/配置路径不变。
+- npm 包名改为 **`dsh-agent-vault`**（`dsh-agent-memory` 已被他人占用，无法发布）。Loader 条目 id 仍是 `agent-memory`；仓库目录同步改为 `E:\Projects\dsh-agent-vault`。
 
 ### 对话归属
 
