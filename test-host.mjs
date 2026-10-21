@@ -260,10 +260,6 @@ ctx.get = name => {
         { id: 'w-work', title: 'Work', path: 'E:\\work', sessionIds: ['session-test-1234'] },
         { id: 'w-other', title: 'Other', path: 'E:\\other', sessionIds: [] },
       ],
-    }
-  }
-  if (name === 'workspaceController') {
-    return {
       archiveSession: (sessionId, options) => {
         archiveCalls.push({ sessionId, options })
         return Promise.resolve()

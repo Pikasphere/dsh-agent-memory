@@ -795,11 +795,11 @@ function registerHandoff(ctx, store, journals, handoff, archives, hints) {
           }
           // The conversation we just left is now superseded: park it as a weak
           // archive (readable, no new turns) until the user cancels or promotes.
-          if (taken.sessionId !== sessionId) {
+          if (typeof taken.sessionId === 'string' && taken.sessionId !== '' && taken.sessionId !== sessionId) {
             try {
-              const workspacesController = ctx.get('workspaceController')
-              if (workspacesController !== undefined && typeof workspacesController.archiveSession === 'function') {
-                await workspacesController.archiveSession(taken.sessionId, { stopActivity: true })
+              const registry = ctx.get('workspaceRegistry')
+              if (registry !== undefined && typeof registry.archiveSession === 'function') {
+                await registry.archiveSession(taken.sessionId, { stopActivity: true })
                 archives.setLevel(taken.sessionId, 'weak', {
                   cwd: sessionCwd(ctx, taken.sessionId),
                   title: sessionTitleOf(ctx, taken.sessionId),
@@ -998,16 +998,16 @@ async function handleOp(ctx, store, rooms, journals, handoff, archives, op, args
         throw new MemoryError('bad-level', `unknown archive level: ${level}`)
       }
       const meta = { cwd: sessionCwd(ctx, sessionId), title: sessionTitleOf(ctx, sessionId) }
-      const workspacesController = ctx.get('workspaceController')
+      const registry = ctx.get('workspaceRegistry')
       if (level === '') {
-        if (workspacesController !== undefined && typeof workspacesController.unarchiveSession === 'function') {
-          await workspacesController.unarchiveSession(sessionId)
+        if (registry !== undefined && typeof registry.unarchiveSession === 'function') {
+          await registry.unarchiveSession(sessionId)
         }
         archives.setLevel(sessionId, '')
         return { sessionId, level: '' }
       }
-      if (workspacesController !== undefined && typeof workspacesController.archiveSession === 'function') {
-        await workspacesController.archiveSession(sessionId, { stopActivity: true })
+      if (registry !== undefined && typeof registry.archiveSession === 'function') {
+        await registry.archiveSession(sessionId, { stopActivity: true })
       }
       archives.setLevel(sessionId, level, meta)
       return { sessionId, level }
