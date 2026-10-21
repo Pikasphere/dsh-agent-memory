@@ -1,4 +1,6 @@
-# dsh-agent-memory
+# dsh-agent-vault
+
+> npm 包名是 **dsh-agent-vault**（原 `dsh-agent-memory` 在 npm 上已被他人占用；代码目录仍叫 `dsh-agent-memory`）。
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）用的智能体记忆与知识库插件。
 
@@ -40,6 +42,12 @@ DSH 插件以 profile 包的形式安装。任选一种：
 ### 方式一：从目录安装
 
 ```bash
+dsh plugin --profile <你的 profile> add dsh-agent-vault
+```
+
+也可以直接从目录装：
+
+```bash
 dsh plugin --profile <你的 profile> add /path/to/dsh-agent-memory
 ```
 
@@ -50,7 +58,7 @@ dsh plugin --profile <你的 profile> add /path/to/dsh-agent-memory
 ```yaml
 - insert:
     - id: agent-memory
-      name: "dsh-agent-memory"
+      name: "dsh-agent-vault"
 ```
 
 **装完必须完全退出并重开 DSH**，不要依赖热加载。
@@ -62,7 +70,7 @@ dsh plugin --profile <你的 profile> add /path/to/dsh-agent-memory
 ```yaml
 - insert:
     - id: agent-memory
-      name: "dsh-agent-memory"
+      name: "dsh-agent-vault"
       config:
         memoryDir: "D:\\dsh\\agent-memory"   # 记忆与注册表根目录，默认 ~/.dsh/agent-memory
         knowledgeDir: "E:\\Agent-knowledge"  # 知识库目录，默认 <memoryDir>/knowledge
